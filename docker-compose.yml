@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/aks_export.db
+      - DATA_DIR=/app/data
+      - CORS_ORIGINS=["http://localhost:3000"]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  app-data:
