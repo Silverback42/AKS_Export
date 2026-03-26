@@ -1,7 +1,8 @@
 import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Trash2, Upload, FileText, FileSpreadsheet } from "lucide-react"
+import { Trash2, Upload, FileText, FileSpreadsheet, ArrowRight } from "lucide-react"
+import { Link } from "react-router-dom"
 import { getProject, deleteProject, uploadFile, deleteUpload } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -151,6 +152,24 @@ export function ProjectDetailPage() {
               ))}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Extraktion starten */}
+      <Card className="mb-6 border-primary/30 bg-primary/5">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="font-medium">Extraktion &amp; Registry</p>
+            <p className="text-sm text-muted-foreground">
+              PDFs hochladen, AKS extrahieren und Registry bauen
+            </p>
+          </div>
+          <Button asChild>
+            <Link to={`/projects/${id}/extraction`}>
+              Zur Extraktion
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 

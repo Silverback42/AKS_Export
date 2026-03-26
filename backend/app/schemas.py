@@ -96,3 +96,17 @@ class TaskResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskResponse]
+
+
+# --- Registry Schemas ---
+
+class RegistrySummaryResponse(BaseModel):
+    metadata: dict
+    room_index: dict[str, list[str]]
+    equipment_count: int
+    schema_aks_count: int
+    cross_ref_count: int

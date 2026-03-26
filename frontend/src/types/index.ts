@@ -48,3 +48,31 @@ export interface Upload {
 export interface ProjectDetail extends Project {
   uploads: Upload[]
 }
+
+export interface Task {
+  id: string
+  project_id: string
+  task_type: string
+  status: "pending" | "running" | "completed" | "failed"
+  progress: number
+  message: string | null
+  result_path: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RegistrySummary {
+  metadata: {
+    total_equipment: number
+    with_schema: number
+    orphans: number
+    total_schema_aks: number
+    total_cross_refs: number
+    resolved_cross_refs: number
+  }
+  room_index: Record<string, string[]>
+  equipment_count: number
+  schema_aks_count: number
+  cross_ref_count: number
+}
