@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
@@ -36,7 +36,6 @@ import type { MatchEntry, UnmatchedAks, UnmatchedRevit } from "@/types"
 
 export function ReviewPage() {
   const { id: projectId, taskId } = useParams<{ id: string; taskId: string }>()
-  const navigate = useNavigate()
 
   const store = useReviewStore()
   const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
@@ -102,7 +101,7 @@ export function ReviewPage() {
     const groups: Record<string, MatchEntry[]> = {}
     for (const m of store.matches) {
       if (!groups[m.room]) groups[m.room] = []
-      groups[m.room].push(m)
+      groups[m.room]!.push(m)
     }
     return groups
   }, [store.matches])
