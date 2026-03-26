@@ -78,6 +78,11 @@ export interface MatchResults {
     confidence: "HIGH" | "MEDIUM" | "LOW"
     sort_axis: string
     sort_rank: number
+    revit_x?: number
+    revit_y?: number
+    pdf_x?: number
+    pdf_y?: number
+    tables_id?: string
   }>
   unmatched_aks: Array<{ room: string; aks: string; reason: string }>
   unmatched_revit: Array<{ room: string; guid: string; reason: string }>

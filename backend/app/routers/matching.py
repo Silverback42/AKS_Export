@@ -64,6 +64,7 @@ def parse_revit(
     run_in_background(
         task.id,
         run_revit_parse,
+        task_id=task.id,
         project_id=project_id,
         excel_path=str(excel_path),
         equipment_type=req.equipment_type,
@@ -81,13 +82,25 @@ def run_match(
     """Matching zwischen Revit-Elementen und AKS-Registry ausfuehren."""
     _get_project_or_404(project_id, db)
 
+    # Letzten abgeschlossenen Parse-Task finden
+    parse_task = (
+        db.query(Task)
+        .filter(Task.project_id == project_id, Task.task_type == "parse_revit", Task.status == "completed")
+        .order_by(Task.created_at.desc())
+        .first()
+    )
+    if not parse_task or not parse_task.result_path:
+        raise HTTPException(status_code=400, detail="Keine geparseten Revit-Daten gefunden. Bitte zuerst parsen.")
+
     task = _create_task(project_id, "match_revit", db)
 
     run_in_background(
         task.id,
         run_matching,
+        task_id=task.id,
         project_id=project_id,
         equipment_filter=req.equipment_filter,
+        revit_data_path=parse_task.result_path,
     )
 
     return TaskResponse.model_validate(task)
@@ -104,10 +117,12 @@ def get_match_results(project_id: str, task_id: str, db: Session = Depends(get_d
     if task.status != "completed":
         raise HTTPException(status_code=400, detail=f"Task noch nicht fertig (Status: {task.status})")
 
-    # Match-Ergebnisse aus intermediate laden
-    match_path = Path(settings.data_dir) / "projects" / project_id / "intermediate" / "match_results.json"
-    if not match_path.exists():
+    # Match-Ergebnisse aus task.result_path laden
+    if not task.result_path:
         raise HTTPException(status_code=404, detail="Match-Ergebnisse nicht gefunden")
+    match_path = Path(task.result_path)
+    if not match_path.exists():
+        raise HTTPException(status_code=404, detail="Match-Ergebnisse-Datei nicht gefunden")
 
     with open(match_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -119,6 +134,16 @@ def get_match_results(project_id: str, task_id: str, db: Session = Depends(get_d
 def export_revit_import(project_id: str, db: Session = Depends(get_db)):
     """Revit-Import-Excel mit AKS-Zuordnungen generieren."""
     _get_project_or_404(project_id, db)
+
+    # Letzten abgeschlossenen Match-Task finden
+    match_task = (
+        db.query(Task)
+        .filter(Task.project_id == project_id, Task.task_type == "match_revit", Task.status == "completed")
+        .order_by(Task.created_at.desc())
+        .first()
+    )
+    if not match_task or not match_task.result_path:
+        raise HTTPException(status_code=400, detail="Keine Match-Ergebnisse gefunden. Bitte zuerst Matching ausfuehren.")
 
     # Original-Excel finden fuer Reimport-Format
     upload = (
@@ -139,8 +164,10 @@ def export_revit_import(project_id: str, db: Session = Depends(get_db)):
     run_in_background(
         task.id,
         run_revit_import_export,
+        task_id=task.id,
         project_id=project_id,
         original_excel_path=str(excel_path),
+        match_results_path=match_task.result_path,
     )
 
     return TaskResponse.model_validate(task)

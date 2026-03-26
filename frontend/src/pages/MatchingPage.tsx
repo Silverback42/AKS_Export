@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useDropzone } from "react-dropzone"
@@ -103,9 +103,11 @@ export function MatchingPage() {
   const exportTask = useTaskPolling(exportTaskId)
 
   // Match-Ergebnisse laden wenn Matching fertig
-  if (matchTask?.status === "completed" && !matchResults && matchTaskId) {
-    getMatchResults(projectId!, matchTaskId).then(setMatchResults).catch(() => {})
-  }
+  useEffect(() => {
+    if (matchTask?.status === "completed" && !matchResults && matchTaskId) {
+      getMatchResults(projectId!, matchTaskId).then(setMatchResults).catch(() => {})
+    }
+  }, [matchTask?.status, matchResults, matchTaskId, projectId])
 
   // Upload
   const uploadMutation = useMutation({
@@ -139,7 +141,6 @@ export function MatchingPage() {
     onDrop,
     accept: {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-      "application/vnd.ms-excel": [".xls"],
     },
   })
 

@@ -18,6 +18,15 @@ COLUMN_PATTERNS = {
 }
 
 
+def _safe_float(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def _match_column(header: str, patterns: list[str]) -> bool:
     header_lower = header.lower().strip()
     return any(p in header_lower for p in patterns)
@@ -77,8 +86,8 @@ def parse_revit_export(
         element = {
             "guid": row[col_map["guid"]],
             "room": str(row[col_map["room"]]).strip() if row[col_map["room"]] else None,
-            "revit_x": float(row[col_map["x"]]) if row[col_map["x"]] is not None else None,
-            "revit_y": float(row[col_map["y"]]) if row[col_map["y"]] is not None else None,
+            "revit_x": _safe_float(row[col_map["x"]]),
+            "revit_y": _safe_float(row[col_map["y"]]),
         }
 
         if "type" in col_map and row[col_map["type"]]:

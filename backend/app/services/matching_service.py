@@ -28,6 +28,7 @@ def _load_json(path: Path) -> dict:
 
 def run_revit_parse(
     on_progress,
+    task_id: str,
     project_id: str,
     excel_path: str,
     equipment_type: str,
@@ -40,7 +41,7 @@ def run_revit_parse(
     )
 
     out_dir = _intermediate_dir(project_id)
-    out_path = out_dir / "revit_elements.json"
+    out_path = out_dir / f"revit_elements_{task_id}.json"
     _save_json(result, out_path)
 
     on_progress(100, f"{result['metadata']['total_count']} Elemente geparst")
@@ -49,13 +50,15 @@ def run_revit_parse(
 
 def run_matching(
     on_progress,
+    task_id: str,
     project_id: str,
     equipment_filter: str,
+    revit_data_path: str,
 ) -> str:
     """Revit-Elemente mit AKS-Registry matchen."""
     inter_dir = _intermediate_dir(project_id)
     registry_path = inter_dir / "aks_registry.json"
-    revit_path = inter_dir / "revit_elements.json"
+    revit_path = Path(revit_data_path)
 
     if not registry_path.exists():
         raise FileNotFoundError("AKS-Registry fehlt. Bitte zuerst Registry bauen (Phase 2).")
@@ -70,7 +73,7 @@ def run_matching(
         registry_data, revit_data, equipment_filter, on_progress=on_progress
     )
 
-    out_path = inter_dir / "match_results.json"
+    out_path = inter_dir / f"match_results_{task_id}.json"
     _save_json(result, out_path)
 
     meta = result["metadata"]
@@ -80,12 +83,13 @@ def run_matching(
 
 def run_revit_import_export(
     on_progress,
+    task_id: str,
     project_id: str,
     original_excel_path: str,
+    match_results_path: str,
 ) -> str:
     """Revit-Import-Excel mit AKS-Zuordnungen exportieren."""
-    inter_dir = _intermediate_dir(project_id)
-    match_path = inter_dir / "match_results.json"
+    match_path = Path(match_results_path)
 
     if not match_path.exists():
         raise FileNotFoundError("Match-Ergebnisse fehlen. Bitte zuerst Matching ausfuehren.")
@@ -95,7 +99,7 @@ def run_revit_import_export(
 
     export_dir = Path(settings.data_dir) / "projects" / project_id / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)
-    out_path = export_dir / "revit_import.xlsx"
+    out_path = export_dir / f"revit_import_{task_id}.xlsx"
 
     export_revit_import_excel(match_data, original_excel_path, out_path, on_progress=on_progress)
 

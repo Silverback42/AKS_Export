@@ -6,6 +6,8 @@ Generates the 4-sheet Excel file for Revit reimport and review.
 from pathlib import Path
 
 import openpyxl
+
+from app.core.tools.parse_revit_export import COLUMN_PATTERNS, _match_column
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -61,12 +63,16 @@ def _create_revit_aks_sheet(wb, match_data: dict, original_excel_path: str | Pat
     for col, val in enumerate(headers, 1):
         ws.cell(row=1, column=col, value=val)
 
-    # GUID-Spalte finden
+    # GUID-Spalte finden (gleiche Patterns wie Parser)
     guid_col = None
     for col_idx, h in enumerate(orig_rows[0]):
-        if h and "ifcguid" in str(h).lower():
+        if h and _match_column(str(h), COLUMN_PATTERNS["guid"]):
             guid_col = col_idx
             break
+
+    if guid_col is None:
+        orig_wb.close()
+        raise ValueError(f"Keine GUID-Spalte gefunden. Header: {list(orig_rows[0])}")
 
     for row_idx, row in enumerate(orig_rows[1:], 2):
         for col, val in enumerate(row, 1):
