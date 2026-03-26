@@ -15,6 +15,7 @@ from app.services.extraction_service import (
     run_schema_extraction,
     run_grundriss_extraction,
     run_registry_build,
+    run_unified_extraction,
     run_aks_excel_export,
 )
 
@@ -52,7 +53,39 @@ def _create_task(project_id: str, task_type: str, db: Session) -> Task:
     return task
 
 
-@router.post("/projects/{project_id}/extract/schema", response_model=TaskResponse)
+@router.post("/projects/{project_id}/extract", response_model=TaskResponse)
+def run_extraction(project_id: str, db: Session = Depends(get_db)):
+    """Unified extraction — erkennt PDF-Typen, extrahiert AKS, baut Registry."""
+    project = _get_project_or_404(project_id, db)
+
+    # Pruefen ob mindestens ein PDF vorhanden
+    pdf_count = (
+        db.query(Upload)
+        .filter(
+            Upload.project_id == project_id,
+            Upload.file_type.in_(["schema_pdf", "grundriss_pdf"]),
+        )
+        .count()
+    )
+    if pdf_count == 0:
+        raise HTTPException(status_code=400, detail="Keine PDFs hochgeladen. Bitte zuerst PDFs hochladen.")
+
+    task = _create_task(project_id, "unified_extraction", db)
+
+    run_in_background(
+        task.id,
+        run_unified_extraction,
+        project_id=project_id,
+        aks_regex_base=project.aks_regex,
+        room_code_pattern=project.room_code_pattern,
+        room_format=project.room_format,
+        geraet_type_map=project.get_geraet_type_map(),
+    )
+
+    return TaskResponse.model_validate(task)
+
+
+@router.post("/projects/{project_id}/extract/schema", response_model=TaskResponse, deprecated=True)
 def extract_schema(project_id: str, db: Session = Depends(get_db)):
     """Schema-AKS aus hochgeladenem Schema-PDF extrahieren."""
     project = _get_project_or_404(project_id, db)
@@ -80,7 +113,7 @@ def extract_schema(project_id: str, db: Session = Depends(get_db)):
     return TaskResponse.model_validate(task)
 
 
-@router.post("/projects/{project_id}/extract/grundriss", response_model=TaskResponse)
+@router.post("/projects/{project_id}/extract/grundriss", response_model=TaskResponse, deprecated=True)
 def extract_grundriss(project_id: str, db: Session = Depends(get_db)):
     """Grundriss-AKS aus hochgeladenem Grundriss-PDF extrahieren."""
     project = _get_project_or_404(project_id, db)
@@ -108,7 +141,7 @@ def extract_grundriss(project_id: str, db: Session = Depends(get_db)):
     return TaskResponse.model_validate(task)
 
 
-@router.post("/projects/{project_id}/registry/build", response_model=TaskResponse)
+@router.post("/projects/{project_id}/registry/build", response_model=TaskResponse, deprecated=True)
 def build_registry(project_id: str, db: Session = Depends(get_db)):
     """Schema + Grundriss zu AKS-Registry zusammenfuehren."""
     _get_project_or_404(project_id, db)

@@ -65,16 +65,24 @@ export async function deleteUpload(projectId: string, uploadId: string): Promise
 }
 
 // Extraction
+export async function runExtraction(projectId: string): Promise<Task> {
+  const res = await api.post<Task>(`/projects/${projectId}/extract`)
+  return res.data
+}
+
+/** @deprecated Verwende runExtraction() */
 export async function extractSchema(projectId: string): Promise<Task> {
   const res = await api.post<Task>(`/projects/${projectId}/extract/schema`)
   return res.data
 }
 
+/** @deprecated Verwende runExtraction() */
 export async function extractGrundriss(projectId: string): Promise<Task> {
   const res = await api.post<Task>(`/projects/${projectId}/extract/grundriss`)
   return res.data
 }
 
+/** @deprecated Verwende runExtraction() */
 export async function buildRegistry(projectId: string): Promise<Task> {
   const res = await api.post<Task>(`/projects/${projectId}/registry/build`)
   return res.data

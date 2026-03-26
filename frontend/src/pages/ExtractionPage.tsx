@@ -13,16 +13,13 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  ChevronRight,
 } from "lucide-react"
 
 import {
   getProject,
   uploadFile,
   deleteUpload,
-  extractSchema,
-  extractGrundriss,
-  buildRegistry,
+  runExtraction,
   getRegistry,
   exportAksRegistry,
   getExportDownloadUrl,
@@ -51,13 +48,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-interface PipelineState {
-  schemaTaskId: string | null
-  grundrissTaskId: string | null
-  registryTaskId: string | null
-  exportTaskId: string | null
 }
 
 function TaskStatusBadge({ task }: { task: TaskType | null }) {
@@ -94,13 +84,8 @@ export function ExtractionPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
 
-  const [pipeline, setPipeline] = useState<PipelineState>({
-    schemaTaskId: null,
-    grundrissTaskId: null,
-    registryTaskId: null,
-    exportTaskId: null,
-  })
-
+  const [extractionTaskId, setExtractionTaskId] = useState<string | null>(null)
+  const [exportTaskId, setExportTaskId] = useState<string | null>(null)
   const [fileTypeOverride, setFileTypeOverride] = useState<string | null>(null)
 
   // Projekt laden
@@ -119,13 +104,11 @@ export function ExtractionPage() {
   })
 
   // Task Polling
-  const schemaTask = useTaskPolling(pipeline.schemaTaskId)
-  const grundrissTask = useTaskPolling(pipeline.grundrissTaskId)
-  const registryTask = useTaskPolling(pipeline.registryTaskId)
-  const exportTask = useTaskPolling(pipeline.exportTaskId)
+  const extractionTask = useTaskPolling(extractionTaskId)
+  const exportTask = useTaskPolling(exportTaskId)
 
-  // Registry nach erfolgreichem Build neu laden
-  if (registryTask?.status === "completed") {
+  // Registry nach erfolgreicher Extraktion neu laden
+  if (extractionTask?.status === "completed") {
     queryClient.invalidateQueries({ queryKey: ["registry", projectId] })
   }
 
@@ -171,41 +154,21 @@ export function ExtractionPage() {
     },
   })
 
-  // Pipeline-Aktionen
-  const startSchema = async () => {
+  // Extraktion starten (unified)
+  const startExtraction = async () => {
     try {
-      const task = await extractSchema(projectId!)
-      setPipeline((prev) => ({ ...prev, schemaTaskId: task.id }))
-      toast.success("Schema-Extraktion gestartet")
+      const task = await runExtraction(projectId!)
+      setExtractionTaskId(task.id)
+      toast.success("Extraktion gestartet")
     } catch {
-      toast.error("Fehler beim Starten der Schema-Extraktion")
-    }
-  }
-
-  const startGrundriss = async () => {
-    try {
-      const task = await extractGrundriss(projectId!)
-      setPipeline((prev) => ({ ...prev, grundrissTaskId: task.id }))
-      toast.success("Grundriss-Extraktion gestartet")
-    } catch {
-      toast.error("Fehler beim Starten der Grundriss-Extraktion")
-    }
-  }
-
-  const startRegistry = async () => {
-    try {
-      const task = await buildRegistry(projectId!)
-      setPipeline((prev) => ({ ...prev, registryTaskId: task.id }))
-      toast.success("Registry-Build gestartet")
-    } catch {
-      toast.error("Fehler beim Starten des Registry-Builds")
+      toast.error("Fehler beim Starten der Extraktion")
     }
   }
 
   const startExport = async () => {
     try {
       const task = await exportAksRegistry(projectId!)
-      setPipeline((prev) => ({ ...prev, exportTaskId: task.id }))
+      setExportTaskId(task.id)
       toast.success("Excel-Export gestartet")
     } catch {
       toast.error("Fehler beim Starten des Exports")
@@ -213,17 +176,15 @@ export function ExtractionPage() {
   }
 
   // Hilfsfunktionen
-  const hasUploadType = (type: string) =>
-    project?.uploads.some((u) => u.file_type === type) ?? false
+  const pdfUploads = project?.uploads.filter(
+    (u) => u.file_type === "schema_pdf" || u.file_type === "grundriss_pdf"
+  ) ?? []
+  const schemaCount = project?.uploads.filter((u) => u.file_type === "schema_pdf").length ?? 0
+  const grundrissCount = project?.uploads.filter((u) => u.file_type === "grundriss_pdf").length ?? 0
 
-  const canStartSchema = hasUploadType("schema_pdf") && schemaTask?.status !== "running"
-  const canStartGrundriss = hasUploadType("grundriss_pdf") && grundrissTask?.status !== "running"
-  const canStartRegistry =
-    (schemaTask?.status === "completed" || hasUploadType("schema_pdf")) &&
-    (grundrissTask?.status === "completed" || hasUploadType("grundriss_pdf")) &&
-    registryTask?.status !== "running"
+  const canStartExtraction = pdfUploads.length > 0 && extractionTask?.status !== "running"
   const canExport =
-    (registryTask?.status === "completed" || registry !== undefined) &&
+    (extractionTask?.status === "completed" || registry !== undefined) &&
     exportTask?.status !== "running"
 
   if (isLoading) return <p className="text-muted-foreground">Laden...</p>
@@ -241,7 +202,7 @@ export function ExtractionPage() {
 
       <h1 className="mb-6 text-2xl font-bold">Extraktion &amp; Registry</h1>
 
-      {/* File Upload Dropzone */}
+      {/* Datei-Upload Dropzone */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
@@ -321,58 +282,49 @@ export function ExtractionPage() {
         </CardContent>
       </Card>
 
-      {/* Pipeline */}
+      {/* Extraktion */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Extraktions-Pipeline</CardTitle>
+          <CardTitle>AKS-Extraktion</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {/* Schritt 1: Schema */}
-            <PipelineStepCard
-              step="1"
-              title="Schema-AKS extrahieren"
-              description="AKS-Identifier aus Schema-PDF lesen"
-              task={schemaTask}
-              canStart={canStartSchema}
-              onStart={startSchema}
-              disabled={!hasUploadType("schema_pdf")}
-              disabledReason="Schema-PDF hochladen"
-            />
-
-            <div className="flex justify-center">
-              <ChevronRight className="h-5 w-5 rotate-90 text-muted-foreground" />
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Extraktion starten</p>
+                <p className="text-sm text-muted-foreground">
+                  {pdfUploads.length === 0
+                    ? "Bitte zuerst PDFs hochladen"
+                    : `${schemaCount} Schema-PDF${schemaCount !== 1 ? "s" : ""}, ${grundrissCount} Grundriss-PDF${grundrissCount !== 1 ? "s" : ""}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <TaskStatusBadge task={extractionTask} />
+                {extractionTask?.status === "failed" ? (
+                  <Button size="sm" variant="destructive" onClick={startExtraction}>
+                    <Play className="mr-1 h-3 w-3" />
+                    Erneut
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={startExtraction} disabled={!canStartExtraction}>
+                    <Play className="mr-1 h-3 w-3" />
+                    Starten
+                  </Button>
+                )}
+              </div>
             </div>
 
-            {/* Schritt 2: Grundriss */}
-            <PipelineStepCard
-              step="2"
-              title="Grundriss-AKS extrahieren"
-              description="AKS + Positionen aus Grundriss-PDF lesen"
-              task={grundrissTask}
-              canStart={canStartGrundriss}
-              onStart={startGrundriss}
-              disabled={!hasUploadType("grundriss_pdf")}
-              disabledReason="Grundriss-PDF hochladen"
-            />
-
-            <div className="flex justify-center">
-              <ChevronRight className="h-5 w-5 rotate-90 text-muted-foreground" />
-            </div>
-
-            {/* Schritt 3: Registry */}
-            <PipelineStepCard
-              step="3"
-              title="AKS-Registry bauen"
-              description="Schema + Grundriss zusammenfuehren"
-              task={registryTask}
-              canStart={canStartRegistry}
-              onStart={startRegistry}
-              disabled={
-                schemaTask?.status !== "completed" && grundrissTask?.status !== "completed"
-              }
-              disabledReason="Erst Schema + Grundriss extrahieren"
-            />
+            {extractionTask?.status === "running" && (
+              <Progress value={extractionTask.progress} className="mt-3" />
+            )}
+            {extractionTask?.message && (
+              <p className="mt-2 text-xs text-muted-foreground">{extractionTask.message}</p>
+            )}
+            {extractionTask?.status === "failed" && extractionTask.error && (
+              <p className="mt-2 text-xs text-destructive">
+                {extractionTask.error.split("\n").pop()}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -443,67 +395,6 @@ export function ExtractionPage() {
           </CardContent>
         </Card>
       )}
-    </div>
-  )
-}
-
-function PipelineStepCard({
-  step,
-  title,
-  description,
-  task,
-  canStart,
-  onStart,
-  disabled,
-  disabledReason,
-}: {
-  step: string
-  title: string
-  description: string
-  task: TaskType | null
-  canStart: boolean
-  onStart: () => void
-  disabled: boolean
-  disabledReason: string
-}) {
-  return (
-    <div className="flex items-center gap-4 rounded-lg border p-4">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-        {step}
-      </div>
-      <div className="flex-1">
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-muted-foreground">{description}</p>
-        {task?.status === "running" && (
-          <Progress value={task.progress} className="mt-2" />
-        )}
-        {task?.message && (
-          <p className="mt-1 text-xs text-muted-foreground">{task.message}</p>
-        )}
-        {task?.status === "failed" && task.error && (
-          <p className="mt-1 text-xs text-destructive">
-            {task.error.split("\n").pop()}
-          </p>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        <TaskStatusBadge task={task} />
-        {disabled ? (
-          <Button size="sm" disabled>
-            {disabledReason}
-          </Button>
-        ) : task?.status === "failed" ? (
-          <Button size="sm" variant="destructive" onClick={onStart}>
-            <Play className="mr-1 h-3 w-3" />
-            Erneut
-          </Button>
-        ) : (
-          <Button size="sm" onClick={onStart} disabled={!canStart}>
-            <Play className="mr-1 h-3 w-3" />
-            Starten
-          </Button>
-        )}
-      </div>
     </div>
   )
 }

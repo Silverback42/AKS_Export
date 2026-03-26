@@ -9,16 +9,28 @@ from pathlib import Path
 
 import fitz
 
+from app.core.tools.aks_structure import EBENE_PREFIX
+
 
 def raum_from_code(code: str, room_code_pattern: str, room_format: str) -> str:
     """Convert room code to readable format using project config."""
-    m = re.match(room_code_pattern, code)
-    if m:
-        return room_format.format(m.group(1))
+    # Sonderfaelle
     if code == "DA000":
         return "Dach"
     if code.endswith("000"):
         return "Allgemein"
+
+    # Erweiterte Erkennung: EG/KG/OG/DA + Ziffern
+    ebene_match = re.match(r"(EG|KG|OG|DA)(\d{3})", code)
+    if ebene_match:
+        prefix = EBENE_PREFIX.get(ebene_match.group(1), ebene_match.group(1))
+        return f"{prefix}.{ebene_match.group(2)}"
+
+    # Fallback: Projekt-spezifisches Pattern
+    m = re.match(room_code_pattern, code)
+    if m:
+        return room_format.format(m.group(1))
+
     return code
 
 
@@ -54,11 +66,8 @@ def extract_grundriss_aks(
         on_progress: Callback(progress_pct, message)
     """
     if geraet_type_map is None:
-        geraet_type_map = {
-            "E": "Leuchte", "M": "Motor/Ventil", "S": "Sensor/Schalter",
-            "B": "Sensor", "A": "Aktor", "U": "Zaehler",
-            "PF": "Pruefeinrichtung", "F": "Sicherheit/Frost",
-        }
+        from app.core.tools.aks_structure import DEFAULT_GERAET_TYPE_MAP
+        geraet_type_map = DEFAULT_GERAET_TYPE_MAP
 
     doc = fitz.open(str(pdf_path))
     page = doc[0]
@@ -130,8 +139,15 @@ def extract_grundriss_aks(
                 entry["geraet"] = parts[5]
                 entry["geraet_type"] = classify_geraet(parts[5], geraet_type_map)
                 entry["depth"] = len(parts)
-                if len(parts) >= 7:
-                    entry["funktion"] = "_".join(parts[6:])
+                if len(parts) == 7:
+                    entry["funktion"] = parts[6]
+                elif len(parts) == 8:
+                    entry["funktion"] = parts[6]
+                    entry["funktion_nr"] = parts[7]
+                    entry["funktionscode"] = f"{parts[6]}_{parts[7]}"
+                elif len(parts) > 8:
+                    entry["funktion"] = parts[6]
+                    entry["sub_funktion"] = "_".join(parts[7:])
 
             aks_entries.append(entry)
             continue
@@ -152,7 +168,7 @@ def extract_grundriss_aks(
             cross_references.append(ref)
             continue
 
-        room_match = re.match(r"^(E\.\d{3})(?:[-\s].*)?$", text)
+        room_match = re.match(r"^([EKODA]{1,2}\.\d{3})(?:[-\s].*)?$", text)
         if room_match:
             room_labels.append({
                 "label": text,

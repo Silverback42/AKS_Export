@@ -9,41 +9,81 @@ from pathlib import Path
 
 import fitz
 
+from app.core.tools.aks_structure import EBENE_PREFIX
+
+
+def _convert_room(raum_code: str, room_code_pattern: str, room_format: str) -> str:
+    """Raum-Code in lesbares Format umwandeln (EG441 -> E.441, KG580 -> K.580)."""
+    # Sonderfaelle
+    if raum_code == "DA000":
+        return "Dach"
+    if raum_code.endswith("000"):
+        return "Allgemein"
+
+    # Erweiterte Erkennung: (EG|KG|OG|DA) + Ziffern
+    ebene_match = re.match(r"(EG|KG|OG|DA)(\d{3})", raum_code)
+    if ebene_match:
+        prefix = EBENE_PREFIX.get(ebene_match.group(1), ebene_match.group(1))
+        return f"{prefix}.{ebene_match.group(2)}"
+
+    # Fallback: Projekt-spezifisches Pattern (Rueckwaertskompatibilitaet)
+    room_match = re.match(room_code_pattern, raum_code)
+    if room_match:
+        return room_format.format(room_match.group(1))
+
+    return raum_code
+
 
 def parse_aks(aks_str: str, room_code_pattern: str, room_format: str) -> dict | None:
-    """Parse AKS string into components using project-specific room patterns."""
+    """Parse AKS string into components using project-specific room patterns.
+
+    Unterstuetzte Formate:
+    - 6-teilig (Grundriss): PROJEKT_GEWERK_ANLAGE+NR_ASP_RAUM_GERAET
+    - 7-teilig (Schema):    PROJEKT_GEWERK_ANLAGE+NR_ASP_RAUM_GERAET_FUNKTION
+    - 8-teilig (MSR):       PROJEKT_GEWERK_ANLAGE+NR_ASP_RAUM_GERAET_FUNKTIONSCODE_NR
+    """
     parts = aks_str.split("_")
     if len(parts) < 6:
         return None
+
+    # Anlage aufteilen: RLT004 -> anlage=RLT, anlage_nr=004
+    anlage_full = parts[2]
+    anlage_letters = re.match(r"^([A-Za-zÖÜÄöüä]+)", anlage_full)
+    if anlage_letters:
+        anlage_name = anlage_letters.group(1)
+        anlage_nr = anlage_full[len(anlage_name):]
+    else:
+        anlage_name = anlage_full
+        anlage_nr = ""
 
     result = {
         "aks_full": aks_str,
         "projekt": parts[0],
         "gewerk": parts[1],
-        "anlage": parts[2],
+        "anlage": anlage_name,
+        "anlage_nr": anlage_nr,
+        "anlage_full": anlage_full,
         "asp": parts[3],
         "raum_code": parts[4],
+        "raum": _convert_room(parts[4], room_code_pattern, room_format),
+        "geraet": parts[5],
+        "depth": len(parts),
     }
 
-    # Raum-Code in lesbares Format umwandeln
-    room_match = re.match(room_code_pattern, parts[4])
-    if room_match:
-        result["raum"] = room_format.format(room_match.group(1))
-    elif parts[4] == "DA000":
-        result["raum"] = "Dach"
-    elif parts[4].endswith("000"):
-        result["raum"] = "Allgemein"
-    else:
-        result["raum"] = parts[4]
-
-    if len(parts) >= 6:
-        result["geraet"] = parts[5]
+    # 7-teilig: Funktion (z.B. RAU01, Anst03)
     if len(parts) >= 7:
         result["funktion"] = parts[6]
-    if len(parts) >= 8:
-        result["sub_funktion"] = "_".join(parts[7:])
 
-    result["depth"] = len(parts)
+    # 8-teilig: MSR-Funktionscode (z.B. SW_01 -> funktion=SW, funktion_nr=01)
+    if len(parts) >= 8:
+        result["funktion"] = parts[6]
+        result["funktion_nr"] = parts[7]
+        result["funktionscode"] = f"{parts[6]}_{parts[7]}"
+
+    # 9+ Teile: Rest zusammenfassen
+    if len(parts) >= 9:
+        result["sub_funktion"] = "_".join(parts[8:])
+
     return result
 
 
