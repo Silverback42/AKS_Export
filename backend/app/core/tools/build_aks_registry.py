@@ -105,7 +105,7 @@ def build_registry(
     if on_progress:
         on_progress(65, "Expandiere Querverweise zu Equipment...")
 
-    # Querverweise in Equipment expandieren
+    # Querverweise in Equipment expandieren (auf 6-teilig gekuerzt = bis Betriebsmittel)
     existing_aks = {eq["aks_parent"].lower() for eq in equipment}
     expanded_count = 0
 
@@ -114,12 +114,15 @@ def build_registry(
             continue
 
         for schema_entry in schema_by_anlage.get(ref["anlage"], []):
-            aks_full = schema_entry["aks_full"]
-            if aks_full.lower() in existing_aks:
+            # AKS auf 6 Teile kuerzen (Projekt_Gewerk_Anlage_ASP_Raum_Betriebsmittel)
+            parts = schema_entry["aks_full"].split("_")
+            aks_truncated = "_".join(parts[:6]) if len(parts) >= 6 else schema_entry["aks_full"]
+
+            if aks_truncated.lower() in existing_aks:
                 continue
 
             eq = {
-                "aks_parent": aks_full,
+                "aks_parent": aks_truncated,
                 "projekt": schema_entry.get("projekt"),
                 "room": schema_entry.get("raum"),
                 "raum_code": schema_entry.get("raum_code"),
@@ -132,7 +135,7 @@ def build_registry(
                 ),
                 "pdf_x": ref.get("pdf_x"),
                 "pdf_y": ref.get("pdf_y"),
-                "depth": schema_entry.get("depth", len(aks_full.split("_"))),
+                "depth": 6,
                 "schema_children": [],
                 "schema_pages": (
                     [schema_entry["source_page"]]
@@ -145,7 +148,7 @@ def build_registry(
                 "cross_ref_anlage": ref.get("anlage"),
             }
             equipment.append(eq)
-            existing_aks.add(aks_full.lower())
+            existing_aks.add(aks_truncated.lower())
             expanded_count += 1
 
     if on_progress:
