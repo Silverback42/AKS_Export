@@ -22,19 +22,11 @@ export interface ProjectListItem {
 export interface ProjectCreateRequest {
   name: string
   project_code: string
-  aks_regex: string
-  room_code_pattern?: string
-  room_format?: string
-  geraet_type_map: Record<string, string>
 }
 
 export interface ProjectUpdateRequest {
   name?: string
   project_code?: string
-  aks_regex?: string
-  room_code_pattern?: string
-  room_format?: string
-  geraet_type_map?: Record<string, string>
 }
 
 export interface Upload {

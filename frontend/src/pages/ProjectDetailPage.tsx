@@ -6,7 +6,6 @@ import { Link } from "react-router-dom"
 import { getProject, deleteProject, uploadFile, deleteUpload } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs"
 import {
@@ -132,24 +131,14 @@ export function ProjectDetailPage() {
         <CardContent>
           <div className="grid gap-3 text-sm sm:grid-cols-2">
             <div>
-              <span className="font-medium">AKS-Regex:</span>{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">{project.aks_regex}</code>
+              <span className="font-medium">Liegenschaft:</span>{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">{project.project_code}</code>
             </div>
             <div>
-              <span className="font-medium">Raum-Pattern:</span>{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">{project.room_code_pattern}</code>
-            </div>
-            <div>
-              <span className="font-medium">Raum-Format:</span>{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">{project.room_format}</code>
-            </div>
-            <div>
-              <span className="font-medium">Geraet-Typen:</span>{" "}
-              {Object.entries(project.geraet_type_map).map(([k, v]) => (
-                <Badge key={k} variant="secondary" className="ml-1">
-                  {k}={v}
-                </Badge>
-              ))}
+              <span className="font-medium">AKS-Suche:</span>{" "}
+              <span className="text-muted-foreground">
+                {project.project_code}001x, {project.project_code}002x, ... (alle Gebaeude)
+              </span>
             </div>
           </div>
         </CardContent>
