@@ -62,6 +62,38 @@ export interface Task {
   updated_at: string
 }
 
+export interface MatchResults {
+  metadata: {
+    equipment_filter: string
+    total_matched: number
+    total_unmatched_aks: number
+    total_unmatched_revit: number
+    rooms_processed: number
+  }
+  matches: Array<{
+    room: string
+    aks: string
+    revit_guid: string
+    revit_type: string
+    confidence: "HIGH" | "MEDIUM" | "LOW"
+    sort_axis: string
+    sort_rank: number
+  }>
+  unmatched_aks: Array<{ room: string; aks: string; reason: string }>
+  unmatched_revit: Array<{ room: string; guid: string; reason: string }>
+  room_summary: Record<
+    string,
+    {
+      matched: number
+      aks_count: number
+      revit_count: number
+      status: "MATCHED" | "NO_AKS" | "NO_REVIT" | "COUNT_MISMATCH"
+      method?: string
+      confidence?: string
+    }
+  >
+}
+
 export interface RegistrySummary {
   metadata: {
     total_equipment: number
