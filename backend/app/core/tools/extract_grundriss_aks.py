@@ -65,7 +65,7 @@ def extract_grundriss_aks(
         geraet_type_map: Mapping von Geraete-Prefix zu Typ-Label
         on_progress: Callback(progress_pct, message)
     """
-    if geraet_type_map is None:
+    if not geraet_type_map:
         from app.core.tools.aks_structure import DEFAULT_GERAET_TYPE_MAP
         geraet_type_map = DEFAULT_GERAET_TYPE_MAP
 
@@ -168,7 +168,7 @@ def extract_grundriss_aks(
             cross_references.append(ref)
             continue
 
-        room_match = re.match(r"^([EKODA]{1,2}\.\d{3})(?:[-\s].*)?$", text)
+        room_match = re.match(r"^((?:EG|KG|OG|DA|E|K|O)\.\d{3})(?:[-\s].*)?$", text)
         if room_match:
             room_labels.append({
                 "label": text,

@@ -160,8 +160,11 @@ export function ExtractionPage() {
       const task = await runExtraction(projectId!)
       setExtractionTaskId(task.id)
       toast.success("Extraktion gestartet")
-    } catch {
-      toast.error("Fehler beim Starten der Extraktion")
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        (err instanceof Error ? err.message : undefined)
+      toast.error(msg ?? "Fehler beim Starten der Extraktion")
     }
   }
 
@@ -170,8 +173,11 @@ export function ExtractionPage() {
       const task = await exportAksRegistry(projectId!)
       setExportTaskId(task.id)
       toast.success("Excel-Export gestartet")
-    } catch {
-      toast.error("Fehler beim Starten des Exports")
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        (err instanceof Error ? err.message : undefined)
+      toast.error(msg ?? "Fehler beim Starten des Exports")
     }
   }
 
@@ -182,10 +188,12 @@ export function ExtractionPage() {
   const schemaCount = project?.uploads.filter((u) => u.file_type === "schema_pdf").length ?? 0
   const grundrissCount = project?.uploads.filter((u) => u.file_type === "grundriss_pdf").length ?? 0
 
-  const canStartExtraction = pdfUploads.length > 0 && extractionTask?.status !== "running"
+  const isExtractionBusy = extractionTask?.status === "running" || extractionTask?.status === "pending"
+  const isExportBusy = exportTask?.status === "running" || exportTask?.status === "pending"
+  const canStartExtraction = pdfUploads.length > 0 && !isExtractionBusy
   const canExport =
     (extractionTask?.status === "completed" || registry !== undefined) &&
-    exportTask?.status !== "running"
+    !isExportBusy
 
   if (isLoading) return <p className="text-muted-foreground">Laden...</p>
   if (!project) return <p className="text-destructive">Projekt nicht gefunden</p>

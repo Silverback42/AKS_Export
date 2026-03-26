@@ -161,7 +161,10 @@ def run_unified_extraction(
     for i, upload in enumerate(schema_pdfs):
         pdf_path = Path(settings.data_dir) / upload.file_path
         if not pdf_path.exists():
-            continue
+            raise FileNotFoundError(
+                f"Upload-Datei fehlt auf Disk: {upload.filename} "
+                f"(upload_id={upload.id}, path={upload.file_path})"
+            )
 
         pct_base = 5 + int((i / max(len(schema_pdfs), 1)) * 40)
         on_progress(pct_base, f"Schema {i + 1}/{len(schema_pdfs)}: {upload.filename}")
@@ -184,7 +187,7 @@ def run_unified_extraction(
             else:
                 merged_schema["anlagen"][key]["pages"].extend(val.get("pages", []))
 
-    # Schema-AKS deduplizieren
+    # Schema-AKS deduplizieren (Provenance mergen)
     seen = {}
     unique_aks = []
     for entry in merged_schema["aks_entries"]:
@@ -192,6 +195,17 @@ def run_unified_extraction(
         if key not in seen:
             seen[key] = entry
             unique_aks.append(entry)
+        else:
+            kept = seen[key]
+            if "additional_pages" not in kept:
+                kept["additional_pages"] = []
+            if entry.get("source_page") and entry["source_page"] not in kept["additional_pages"]:
+                kept["additional_pages"].append(entry["source_page"])
+            if entry.get("source_file") and entry["source_file"] != kept.get("source_file"):
+                if "additional_sources" not in kept:
+                    kept["additional_sources"] = []
+                if entry["source_file"] not in kept["additional_sources"]:
+                    kept["additional_sources"].append(entry["source_file"])
     merged_schema["aks_entries"] = unique_aks
     merged_schema["metadata"]["total_aks_unique"] = len(unique_aks)
 
@@ -208,7 +222,10 @@ def run_unified_extraction(
     for i, upload in enumerate(grundriss_pdfs):
         pdf_path = Path(settings.data_dir) / upload.file_path
         if not pdf_path.exists():
-            continue
+            raise FileNotFoundError(
+                f"Upload-Datei fehlt auf Disk: {upload.filename} "
+                f"(upload_id={upload.id}, path={upload.file_path})"
+            )
 
         pct_base = 45 + int((i / max(len(grundriss_pdfs), 1)) * 30)
         on_progress(pct_base, f"Grundriss {i + 1}/{len(grundriss_pdfs)}: {upload.filename}")
