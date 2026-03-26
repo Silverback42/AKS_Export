@@ -8,7 +8,7 @@ services:
     environment:
       - DATABASE_URL=sqlite:////app/data/aks_export.db
       - DATA_DIR=/app/data
-      - CORS_ORIGINS=["http://localhost:8083"]
+      - CORS_ORIGINS=["http://localhost:8083","http://192.168.188.70:8083"]
 
   frontend:
     image: ghcr.io/silverback42/aks-export-frontend:latest

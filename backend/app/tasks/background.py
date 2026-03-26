@@ -34,7 +34,7 @@ def update_task(task_id: str, **kwargs):
         db.close()
 
 
-def run_in_background(task_id: str, fn: Callable, *args, **kwargs):
+def run_in_background(bg_task_id: str, fn: Callable, *args, **kwargs):
     """Submit a function to run in a background thread.
 
     The function receives a `on_progress(pct, message)` callback as first argument,
@@ -46,14 +46,14 @@ def run_in_background(task_id: str, fn: Callable, *args, **kwargs):
 
     def _wrapper():
         def on_progress(pct: int, message: str):
-            update_task(task_id, progress=min(pct, 99), message=message, status="running")
+            update_task(bg_task_id, progress=min(pct, 99), message=message, status="running")
 
-        update_task(task_id, status="running", progress=0, message="Gestartet")
+        update_task(bg_task_id, status="running", progress=0, message="Gestartet")
 
         try:
             result_path = fn(on_progress, *args, **kwargs)
             update_task(
-                task_id,
+                bg_task_id,
                 status="completed",
                 progress=100,
                 message="Fertig",
@@ -61,6 +61,6 @@ def run_in_background(task_id: str, fn: Callable, *args, **kwargs):
             )
         except Exception:
             tb = traceback.format_exc()
-            update_task(task_id, status="failed", error=tb, message="Fehler")
+            update_task(bg_task_id, status="failed", error=tb, message="Fehler")
 
     _executor.submit(_wrapper)
