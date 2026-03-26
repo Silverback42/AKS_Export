@@ -63,14 +63,26 @@ def export_aks_registry_excel(
     if on_progress:
         on_progress(10, "Erstelle AKS-Komplett Sheet...")
 
-    # Sheet 1: AKS Komplett
+    # Sheet 1: AKS Komplett (Spaltenreihenfolge = Erscheinen im AKS-Code)
     ws = wb.active
     ws.title = "AKS Komplett"
 
     headers = [
-        "AKS", "Raum", "Anlage", "Gewerk", "Geraet",
-        "Geraet-Typ", "Hat Schema", "Schema-Kinder",
-        "Schema-Seiten", "PDF X", "PDF Y",
+        "AKS",
+        "Gebaeude",
+        "Gewerk",
+        "Anlage",
+        "ASP/UV",
+        "Raum",
+        "Betriebsmittel",
+        "Betriebsmittel-Typ",
+        "Hat Schema",
+        "Schema-Kinder",
+        "Schema-Seiten",
+        "PDF X",
+        "PDF Y",
+        "Quelle",
+        "Querverweis",
     ]
     for col, h in enumerate(headers, 1):
         ws.cell(row=1, column=col, value=h)
@@ -78,16 +90,20 @@ def export_aks_registry_excel(
     row = 2
     for eq in registry_data.get("equipment", []):
         ws.cell(row=row, column=1, value=eq.get("aks_parent"))
-        ws.cell(row=row, column=2, value=eq.get("room"))
-        ws.cell(row=row, column=3, value=eq.get("anlage"))
-        ws.cell(row=row, column=4, value=eq.get("gewerk"))
-        ws.cell(row=row, column=5, value=eq.get("geraet"))
-        ws.cell(row=row, column=6, value=eq.get("geraet_type"))
-        ws.cell(row=row, column=7, value="Ja" if eq.get("has_schema") else "Nein")
-        ws.cell(row=row, column=8, value=len(eq.get("schema_children", [])))
-        ws.cell(row=row, column=9, value=", ".join(str(p) for p in eq.get("schema_pages", [])))
-        ws.cell(row=row, column=10, value=eq.get("pdf_x"))
-        ws.cell(row=row, column=11, value=eq.get("pdf_y"))
+        ws.cell(row=row, column=2, value=eq.get("projekt"))
+        ws.cell(row=row, column=3, value=eq.get("gewerk"))
+        ws.cell(row=row, column=4, value=eq.get("anlage"))
+        ws.cell(row=row, column=5, value=eq.get("asp"))
+        ws.cell(row=row, column=6, value=eq.get("room"))
+        ws.cell(row=row, column=7, value=eq.get("geraet"))
+        ws.cell(row=row, column=8, value=eq.get("geraet_type"))
+        ws.cell(row=row, column=9, value="Ja" if eq.get("has_schema") else "Nein")
+        ws.cell(row=row, column=10, value=len(eq.get("schema_children", [])))
+        ws.cell(row=row, column=11, value=", ".join(str(p) for p in eq.get("schema_pages", [])))
+        ws.cell(row=row, column=12, value=eq.get("pdf_x"))
+        ws.cell(row=row, column=13, value=eq.get("pdf_y"))
+        ws.cell(row=row, column=14, value=eq.get("source", "grundriss"))
+        ws.cell(row=row, column=15, value=eq.get("cross_ref_text", ""))
 
         fill = GREEN_FILL if eq.get("has_schema") else RED_FILL
         for c in range(1, len(headers) + 1):
@@ -136,7 +152,7 @@ def export_aks_registry_excel(
 
     # Sheet 3: Raum-Uebersicht
     ws3 = wb.create_sheet("Raum-Uebersicht")
-    headers3 = ["Raum", "Anzahl AKS", "Geraet-Typen"]
+    headers3 = ["Raum", "Anzahl AKS", "Betriebsmittel-Typen"]
     for col, h in enumerate(headers3, 1):
         ws3.cell(row=1, column=col, value=h)
 
