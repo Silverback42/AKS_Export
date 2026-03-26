@@ -6,14 +6,35 @@ import { Textarea } from "@/components/ui/textarea"
 import type { ProjectCreateRequest } from "@/types"
 
 const DEFAULT_GERAET_TYPE_MAP: Record<string, string> = {
+  // Betriebsmittel
   E: "Leuchte",
   M: "Motor/Ventil",
   S: "Sensor/Schalter",
   B: "Sensor",
   A: "Aktor",
   U: "Zaehler",
-  PF: "Pruefeinrichtung",
+  Q: "Zaehler",
   F: "Sicherheit/Frost",
+  PF: "Pruefeinrichtung",
+  // MSR-Funktionscodes
+  BM: "Betriebsmeldung",
+  FR: "Frostschutz",
+  GM: "Grenzwertmeldung",
+  HD: "Handsteuerung",
+  MW: "Messwert",
+  SM: "Stellungsmeldung",
+  ST: "Steuersignal",
+  SW: "Sollwert",
+  RW: "Rueckmeldewert",
+  SB: "Statusbit",
+  RM: "Rueckmeldung",
+  WM: "Waermemenge",
+  NC: "Netzfuehrung",
+  ZP: "Zustandsspeicher",
+  AF: "Anforderung",
+  EE: "Ein-/Ausschalter",
+  TR: "Treiber",
+  MV: "Magnetventil",
 }
 
 interface Props {
