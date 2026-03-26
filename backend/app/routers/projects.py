@@ -67,11 +67,6 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(req: ProjectCreateRequest, db: Session = Depends(get_db)):
-    # Check unique project_code
-    existing = db.query(Project).filter(Project.project_code == req.project_code).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Project code already exists")
-
     project = Project(
         name=req.name,
         project_code=req.project_code,
@@ -109,12 +104,6 @@ def update_project(project_id: str, req: ProjectUpdateRequest, db: Session = Dep
     if req.name is not None:
         project.name = req.name
     if req.project_code is not None:
-        existing = db.query(Project).filter(
-            Project.project_code == req.project_code,
-            Project.id != project_id,
-        ).first()
-        if existing:
-            raise HTTPException(status_code=409, detail="Project code already exists")
         project.project_code = req.project_code
         project.aks_regex = _build_aks_regex(req.project_code)
 

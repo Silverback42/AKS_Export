@@ -21,7 +21,7 @@ class Project(Base):
 
     id = Column(String(36), primary_key=True, default=new_uuid)
     name = Column(String(255), nullable=False)
-    project_code = Column(String(50), nullable=False, unique=True)
+    project_code = Column(String(50), nullable=False)
     aks_regex = Column(String(255), nullable=False)
     room_code_pattern = Column(String(100), nullable=False, default=r"EG(\d{3})")
     room_format = Column(String(50), nullable=False, default="E.{0}")
