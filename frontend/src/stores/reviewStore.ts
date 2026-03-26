@@ -82,23 +82,24 @@ function recalcRoomSummary(
     if (!summary[m.room]) {
       summary[m.room] = { matched: 0, aks_count: 0, revit_count: 0, status: "MATCHED" }
     }
-    summary[m.room].matched += 1
-    summary[m.room].aks_count += 1
-    summary[m.room].revit_count += 1
+    const rs = summary[m.room]!
+    rs.matched += 1
+    rs.aks_count += 1
+    rs.revit_count += 1
   }
 
   for (const um of unmatchedAks) {
     if (!summary[um.room]) {
       summary[um.room] = { matched: 0, aks_count: 0, revit_count: 0, status: "NO_REVIT" }
     }
-    summary[um.room].aks_count += 1
+    summary[um.room]!.aks_count += 1
   }
 
   for (const um of unmatchedRevit) {
     if (!summary[um.room]) {
       summary[um.room] = { matched: 0, aks_count: 0, revit_count: 0, status: "NO_AKS" }
     }
-    summary[um.room].revit_count += 1
+    summary[um.room]!.revit_count += 1
   }
 
   for (const [, s] of Object.entries(summary)) {
@@ -187,7 +188,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     const idx = matches.findIndex((m) => m.revit_guid === revitGuid)
     if (idx === -1) return
 
-    const match = matches.splice(idx, 1)[0]
+    const match = matches.splice(idx, 1)[0]!
     const unmatchedAks = [...state.unmatchedAks, { room: match.room, aks: match.aks, reason: "manually_unmatched" }]
     const unmatchedRevit = [...state.unmatchedRevit, { room: match.room, guid: match.revit_guid, reason: "manually_unmatched" }]
 
@@ -255,7 +256,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     if (state.undoStack.length === 0) return
 
     const currentSnapshot = takeSnapshot(state)
-    const previous = state.undoStack[state.undoStack.length - 1]
+    const previous = state.undoStack[state.undoStack.length - 1]!
     const newPending = state.pendingCorrections.slice(0, -1)
 
     set({
@@ -275,7 +276,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     if (state.redoStack.length === 0) return
 
     const currentSnapshot = takeSnapshot(state)
-    const next = state.redoStack[state.redoStack.length - 1]
+    const next = state.redoStack[state.redoStack.length - 1]!
 
     set({
       matches: next.matches,
@@ -293,7 +294,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     const state = get()
     if (state.undoStack.length === 0) return
 
-    const first = state.undoStack[0]
+    const first = state.undoStack[0]!
     set({
       matches: first.matches,
       unmatchedAks: first.unmatchedAks,

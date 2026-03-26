@@ -297,9 +297,14 @@ export function MatchingPage() {
                 )}
               </div>
               <TaskStatusBadge task={parseTask} />
-              <Button size="sm" onClick={startParse} disabled={!canParse}>
+              <Button
+                size="sm"
+                variant={parseTask?.status === "failed" ? "destructive" : "default"}
+                onClick={startParse}
+                disabled={!canParse}
+              >
                 <Play className="mr-1 h-3 w-3" />
-                Parsen
+                {parseTask?.status === "failed" ? "Erneut" : "Parsen"}
               </Button>
             </div>
 
@@ -325,9 +330,14 @@ export function MatchingPage() {
                 )}
               </div>
               <TaskStatusBadge task={matchTask} />
-              <Button size="sm" onClick={startMatch} disabled={!canMatch}>
+              <Button
+                size="sm"
+                variant={matchTask?.status === "failed" ? "destructive" : "default"}
+                onClick={startMatch}
+                disabled={!canMatch}
+              >
                 <Play className="mr-1 h-3 w-3" />
-                Matchen
+                {matchTask?.status === "failed" ? "Erneut" : "Matchen"}
               </Button>
             </div>
           </div>
