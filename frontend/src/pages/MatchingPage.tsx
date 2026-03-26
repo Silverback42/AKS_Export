@@ -107,7 +107,9 @@ export function MatchingPage() {
   // Match-Ergebnisse laden wenn Matching fertig
   useEffect(() => {
     if (matchTask?.status === "completed" && !matchResults && matchTaskId) {
-      getMatchResults(projectId!, matchTaskId).then(setMatchResults).catch(() => {})
+      getMatchResults(projectId!, matchTaskId)
+        .then(setMatchResults)
+        .catch(() => toast.error("Fehler beim Laden der Match-Ergebnisse"))
     }
   }, [matchTask?.status, matchResults, matchTaskId, projectId])
 

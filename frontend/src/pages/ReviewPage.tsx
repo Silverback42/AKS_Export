@@ -54,21 +54,22 @@ export function ReviewPage() {
   })
 
   // Review-Daten laden
-  const { isLoading } = useQuery({
+  const { data: reviewData, isLoading, error: reviewError } = useQuery({
     queryKey: ["review", projectId, taskId],
     queryFn: () => getReviewData(projectId!, taskId!),
     enabled: !!projectId && !!taskId,
     refetchOnWindowFocus: false,
   })
 
-  // Review-Daten initial in Store laden
+  // Review-Daten in Store laden wenn Query erfolgreich
   useEffect(() => {
-    if (!projectId || !taskId) return
-    getReviewData(projectId, taskId)
-      .then((data) => store.loadReviewData(data))
-      .catch(() => toast.error("Fehler beim Laden der Review-Daten"))
+    if (reviewData) store.loadReviewData(reviewData)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, taskId])
+  }, [reviewData])
+
+  useEffect(() => {
+    if (reviewError) toast.error("Fehler beim Laden der Review-Daten")
+  }, [reviewError])
 
   // Leave-Guard bei ungespeicherten Aenderungen
   useEffect(() => {
@@ -201,7 +202,7 @@ export function ReviewPage() {
       }
       // Korrekturen anwenden und korrigierte JSON speichern
       const result = await applyCorrections(projectId, taskId)
-      store.markSaved(result.corrections)
+      store.markSaved(result)
       toast.success("Korrekturen gespeichert")
     } catch {
       toast.error("Fehler beim Speichern")

@@ -140,19 +140,28 @@ def _recalculate_room_summary(data: dict):
     """Room-Summary basierend auf aktuellem Match-Zustand neu berechnen."""
     summary = {}
 
-    # Matches zaehlen
+    # Matches zaehlen + Confidence-Flags pro Raum sammeln (O(n))
+    room_flags: dict[str, dict[str, bool]] = {}
     for m in data["matches"]:
         room = m["room"]
         if room not in summary:
             summary[room] = {"matched": 0, "aks_count": 0, "revit_count": 0, "status": "MATCHED"}
+            room_flags[room] = {"has_corrected": False, "has_medium": False}
         summary[room]["matched"] += 1
         summary[room]["aks_count"] += 1
         summary[room]["revit_count"] += 1
 
-        confidences = [mm["confidence"] for mm in data["matches"] if mm["room"] == room]
-        if any(c == "CORRECTED" for c in confidences):
+        flags = room_flags.setdefault(room, {"has_corrected": False, "has_medium": False})
+        if m.get("confidence") == "CORRECTED":
+            flags["has_corrected"] = True
+        elif m.get("confidence") == "MEDIUM":
+            flags["has_medium"] = True
+
+    # Confidence pro Raum setzen
+    for room, flags in room_flags.items():
+        if flags["has_corrected"]:
             summary[room]["confidence"] = "CORRECTED"
-        elif any(c == "MEDIUM" for c in confidences):
+        elif flags["has_medium"]:
             summary[room]["confidence"] = "MEDIUM"
         else:
             summary[room]["confidence"] = "HIGH"
@@ -174,7 +183,7 @@ def _recalculate_room_summary(data: dict):
             summary[room]["revit_count"] += 1
 
     # Status aktualisieren
-    for room, s in summary.items():
+    for s in summary.values():
         if s["matched"] > 0 and s["aks_count"] == s["revit_count"] == s["matched"]:
             s["status"] = "MATCHED"
         elif s["aks_count"] != s["revit_count"]:

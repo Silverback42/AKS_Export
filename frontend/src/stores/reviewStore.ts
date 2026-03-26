@@ -6,12 +6,14 @@ import type {
   RoomSummary,
   Correction,
   CorrectionCreate,
+  ReviewData,
 } from "@/types"
 
 interface ReviewSnapshot {
   matches: MatchEntry[]
   unmatchedAks: UnmatchedAks[]
   unmatchedRevit: UnmatchedRevit[]
+  pendingCorrections: CorrectionCreate[]
 }
 
 interface ReviewState {
@@ -57,7 +59,7 @@ interface ReviewState {
   setSelectedRevitGuid: (guid: string | null) => void
   clearSelection: () => void
 
-  markSaved: (corrections: Correction[]) => void
+  markSaved: (data: ReviewData) => void
 }
 
 function takeSnapshot(state: ReviewState): ReviewSnapshot {
@@ -65,6 +67,7 @@ function takeSnapshot(state: ReviewState): ReviewSnapshot {
     matches: structuredClone(state.matches),
     unmatchedAks: structuredClone(state.unmatchedAks),
     unmatchedRevit: structuredClone(state.unmatchedRevit),
+    pendingCorrections: structuredClone(state.pendingCorrections),
   }
 }
 
@@ -278,10 +281,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       matches: next.matches,
       unmatchedAks: next.unmatchedAks,
       unmatchedRevit: next.unmatchedRevit,
+      pendingCorrections: next.pendingCorrections,
       roomSummary: recalcRoomSummary(next.matches, next.unmatchedAks, next.unmatchedRevit),
       undoStack: [...state.undoStack, currentSnapshot],
       redoStack: state.redoStack.slice(0, -1),
-      hasUnsavedChanges: true,
+      hasUnsavedChanges: next.pendingCorrections.length > 0,
     })
   },
 
@@ -309,10 +313,16 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   setSelectedRevitGuid: (guid) => set({ selectedRevitGuid: guid }),
   clearSelection: () => set({ selectedAksId: null, selectedRevitGuid: null }),
 
-  markSaved: (corrections) => {
+  markSaved: (data) => {
     set({
-      savedCorrections: corrections,
+      matches: data.matches,
+      unmatchedAks: data.unmatched_aks,
+      unmatchedRevit: data.unmatched_revit,
+      roomSummary: data.room_summary,
+      savedCorrections: data.corrections,
       pendingCorrections: [],
+      undoStack: [],
+      redoStack: [],
       hasUnsavedChanges: false,
     })
   },

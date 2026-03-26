@@ -9,7 +9,7 @@ const COLORS: Record<string, string> = {
 
 export function ConfidenceBadge({ confidence }: { confidence: string }) {
   return (
-    <Badge variant="outline" className={COLORS[confidence] ?? "bg-gray-100"}>
+    <Badge variant="outline" className={COLORS[confidence] ?? "bg-gray-100 text-gray-800 border-gray-300"}>
       {confidence}
     </Badge>
   )
