@@ -1,5 +1,6 @@
 import axios from "axios"
 import type {
+  MatchResults,
   Project,
   ProjectCreateRequest,
   ProjectDetail,
@@ -100,4 +101,29 @@ export async function exportAksRegistry(projectId: string): Promise<Task> {
 
 export function getExportDownloadUrl(projectId: string, taskId: string): string {
   return `/api/projects/${projectId}/export/${taskId}/download`
+}
+
+// Matching
+export async function parseRevit(projectId: string, equipmentType = "unknown"): Promise<Task> {
+  const res = await api.post<Task>(`/projects/${projectId}/revit/parse`, {
+    equipment_type: equipmentType,
+  })
+  return res.data
+}
+
+export async function runMatch(projectId: string, equipmentFilter: string): Promise<Task> {
+  const res = await api.post<Task>(`/projects/${projectId}/match`, {
+    equipment_filter: equipmentFilter,
+  })
+  return res.data
+}
+
+export async function getMatchResults(projectId: string, taskId: string): Promise<MatchResults> {
+  const res = await api.get<MatchResults>(`/projects/${projectId}/match/${taskId}/results`)
+  return res.data
+}
+
+export async function exportRevitImport(projectId: string): Promise<Task> {
+  const res = await api.post<Task>(`/projects/${projectId}/export/revit-import`)
+  return res.data
 }

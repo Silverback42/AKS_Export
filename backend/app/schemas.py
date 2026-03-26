@@ -110,3 +110,21 @@ class RegistrySummaryResponse(BaseModel):
     equipment_count: int
     schema_aks_count: int
     cross_ref_count: int
+
+
+# --- Matching Schemas ---
+
+class MatchRequest(BaseModel):
+    equipment_filter: str = Field(..., min_length=1, description="Equipment-Typ-Filter (z.B. 'Leuchte')")
+
+
+class RevitParseRequest(BaseModel):
+    equipment_type: str = Field(default="unknown", description="Equipment-Typ-Label")
+
+
+class MatchResultsResponse(BaseModel):
+    metadata: dict
+    matches: list[dict]
+    unmatched_aks: list[dict]
+    unmatched_revit: list[dict]
+    room_summary: dict

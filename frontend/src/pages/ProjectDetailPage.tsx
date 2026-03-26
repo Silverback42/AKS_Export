@@ -173,6 +173,24 @@ export function ProjectDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Matching starten */}
+      <Card className="mb-6 border-green-300/50 bg-green-50/50">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="font-medium">Revit Matching</p>
+            <p className="text-sm text-muted-foreground">
+              Revit-Excel hochladen, Equipment matchen und Export generieren
+            </p>
+          </div>
+          <Button variant="outline" asChild>
+            <Link to={`/projects/${id}/matching`}>
+              Zum Matching
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <Separator className="my-6" />
 
       {/* File Uploads */}
