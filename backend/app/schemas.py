@@ -7,29 +7,12 @@ from pydantic import BaseModel, Field
 
 class ProjectCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    project_code: str = Field(..., min_length=1, max_length=50)
-    aks_regex: str = Field(..., min_length=1)
-    room_code_pattern: str = Field(default=r"EG(\d{3})")
-    room_format: str = Field(default="E.{0}")
-    geraet_type_map: dict[str, str] = Field(default_factory=lambda: {
-        "E": "Leuchte",
-        "M": "Motor/Ventil",
-        "S": "Sensor/Schalter",
-        "B": "Sensor",
-        "A": "Aktor",
-        "U": "Zaehler",
-        "PF": "Pruefeinrichtung",
-        "F": "Sicherheit/Frost",
-    })
+    project_code: str = Field(..., min_length=2, max_length=10, description="Liegenschaftskuerzel, z.B. WUN")
 
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    project_code: str | None = Field(default=None, min_length=1, max_length=50)
-    aks_regex: str | None = Field(default=None, min_length=1)
-    room_code_pattern: str | None = None
-    room_format: str | None = None
-    geraet_type_map: dict[str, str] | None = None
+    project_code: str | None = Field(default=None, min_length=2, max_length=10)
 
 
 class ProjectResponse(BaseModel):

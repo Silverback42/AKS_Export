@@ -18,6 +18,12 @@ from app.schemas import (
     ProjectUpdateRequest,
     UploadResponse,
 )
+from app.core.tools.aks_structure import DEFAULT_GERAET_TYPE_MAP
+
+
+def _build_aks_regex(project_code: str) -> str:
+    """Baut AKS-Regex aus Liegenschaftskuerzel: WUN -> WUN\\d{3}[xX]?"""
+    return rf"{re.escape(project_code)}\d{{3}}[xX]?"
 
 router = APIRouter(tags=["projects"])
 
@@ -61,12 +67,6 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(req: ProjectCreateRequest, db: Session = Depends(get_db)):
-    # Validate regex
-    try:
-        re.compile(req.aks_regex)
-    except re.error as e:
-        raise HTTPException(status_code=400, detail=f"Invalid AKS regex: {e}")
-
     # Check unique project_code
     existing = db.query(Project).filter(Project.project_code == req.project_code).first()
     if existing:
@@ -75,11 +75,11 @@ def create_project(req: ProjectCreateRequest, db: Session = Depends(get_db)):
     project = Project(
         name=req.name,
         project_code=req.project_code,
-        aks_regex=req.aks_regex,
-        room_code_pattern=req.room_code_pattern,
-        room_format=req.room_format,
+        aks_regex=_build_aks_regex(req.project_code),
+        room_code_pattern=r"(EG|KG|OG|DA)(\d{3})",
+        room_format="{0}.{1}",
     )
-    project.set_geraet_type_map(req.geraet_type_map)
+    project.set_geraet_type_map(DEFAULT_GERAET_TYPE_MAP)
 
     db.add(project)
     db.commit()
@@ -116,18 +116,7 @@ def update_project(project_id: str, req: ProjectUpdateRequest, db: Session = Dep
         if existing:
             raise HTTPException(status_code=409, detail="Project code already exists")
         project.project_code = req.project_code
-    if req.aks_regex is not None:
-        try:
-            re.compile(req.aks_regex)
-        except re.error as e:
-            raise HTTPException(status_code=400, detail=f"Invalid AKS regex: {e}")
-        project.aks_regex = req.aks_regex
-    if req.room_code_pattern is not None:
-        project.room_code_pattern = req.room_code_pattern
-    if req.room_format is not None:
-        project.room_format = req.room_format
-    if req.geraet_type_map is not None:
-        project.set_geraet_type_map(req.geraet_type_map)
+        project.aks_regex = _build_aks_regex(req.project_code)
 
     db.commit()
     db.refresh(project)
