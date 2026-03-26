@@ -36,9 +36,19 @@ export function ProjectForm({ onSubmit, isLoading, initialValues }: Props) {
     JSON.stringify(initialValues?.geraet_type_map ?? DEFAULT_GERAET_TYPE_MAP, null, 2)
   )
   const [jsonError, setJsonError] = useState("")
+  const [regexError, setRegexError] = useState("")
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Regex validieren
+    try {
+      new RegExp(aksRegex)
+      setRegexError("")
+    } catch {
+      setRegexError("Ungueltiger regulaerer Ausdruck")
+      return
+    }
 
     let geraetTypeMap: Record<string, string>
     try {
@@ -89,11 +99,15 @@ export function ProjectForm({ onSubmit, isLoading, initialValues }: Props) {
         <Input
           id="regex"
           value={aksRegex}
-          onChange={(e) => setAksRegex(e.target.value)}
+          onChange={(e) => {
+            setAksRegex(e.target.value)
+            setRegexError("")
+          }}
           placeholder={String.raw`z.B. WUN005[xX]?_\w+(?:_\w+)*`}
           className="font-mono text-sm"
           required
         />
+        {regexError && <p className="text-sm text-destructive">{regexError}</p>}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

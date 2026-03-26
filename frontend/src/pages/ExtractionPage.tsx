@@ -492,6 +492,11 @@ function PipelineStepCard({
           <Button size="sm" disabled>
             {disabledReason}
           </Button>
+        ) : task?.status === "failed" ? (
+          <Button size="sm" variant="destructive" onClick={onStart}>
+            <Play className="mr-1 h-3 w-3" />
+            Erneut
+          </Button>
         ) : (
           <Button size="sm" onClick={onStart} disabled={!canStart}>
             <Play className="mr-1 h-3 w-3" />
