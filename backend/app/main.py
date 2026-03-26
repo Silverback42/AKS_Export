@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import projects, uploads, extraction, tasks, matching
+from app.routers import projects, uploads, extraction, tasks, matching, review
 
 # Import models so they're registered with Base before create_all
 import app.models  # noqa: F401
@@ -36,6 +36,7 @@ app.include_router(uploads.router, prefix="/api")
 app.include_router(extraction.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(matching.router, prefix="/api")
+app.include_router(review.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -4,6 +4,7 @@ import { ProjectListPage } from "./pages/ProjectListPage"
 import { ProjectDetailPage } from "./pages/ProjectDetailPage"
 import { ExtractionPage } from "./pages/ExtractionPage"
 import { MatchingPage } from "./pages/MatchingPage"
+import { ReviewPage } from "./pages/ReviewPage"
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/projects/:id/extraction" element={<ExtractionPage />} />
         <Route path="/projects/:id/matching" element={<MatchingPage />} />
+        <Route path="/projects/:id/matching/:taskId/review" element={<ReviewPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/projects" replace />} />
     </Routes>

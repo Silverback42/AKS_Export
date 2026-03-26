@@ -128,3 +128,43 @@ class MatchResultsResponse(BaseModel):
     unmatched_aks: list[dict]
     unmatched_revit: list[dict]
     room_summary: dict
+
+
+# --- Review / Correction Schemas ---
+
+class CorrectionCreate(BaseModel):
+    room: str
+    revit_guid: str
+    original_aks: str | None = None
+    corrected_aks: str | None = None
+    correction_type: str = Field(
+        ...,
+        pattern=r"^(swap|unmatch|manual_match)$",
+        description="swap, unmatch oder manual_match",
+    )
+
+
+class CorrectionResponse(BaseModel):
+    id: str
+    project_id: str
+    task_id: str
+    room: str
+    revit_guid: str
+    original_aks: str | None
+    corrected_aks: str | None
+    correction_type: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CorrectionListResponse(BaseModel):
+    corrections: list[CorrectionResponse]
+
+
+class ReviewDataResponse(BaseModel):
+    matches: list[dict]
+    unmatched_aks: list[dict]
+    unmatched_revit: list[dict]
+    room_summary: dict
+    corrections: list[CorrectionResponse]

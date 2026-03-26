@@ -1,5 +1,7 @@
 import axios from "axios"
 import type {
+  Correction,
+  CorrectionCreate,
   MatchResults,
   Project,
   ProjectCreateRequest,
@@ -7,6 +9,7 @@ import type {
   ProjectListItem,
   ProjectUpdateRequest,
   RegistrySummary,
+  ReviewData,
   Task,
   Upload,
 } from "@/types"
@@ -123,7 +126,60 @@ export async function getMatchResults(projectId: string, taskId: string): Promis
   return res.data
 }
 
-export async function exportRevitImport(projectId: string): Promise<Task> {
-  const res = await api.post<Task>(`/projects/${projectId}/export/revit-import`)
+export async function exportRevitImport(
+  projectId: string,
+  opts?: { withCorrections?: boolean; matchTaskId?: string },
+): Promise<Task> {
+  const params = new URLSearchParams()
+  if (opts?.withCorrections) params.set("with_corrections", "true")
+  if (opts?.matchTaskId) params.set("match_task_id", opts.matchTaskId)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  const res = await api.post<Task>(`/projects/${projectId}/export/revit-import${qs}`)
+  return res.data
+}
+
+// Review / Corrections
+export async function getReviewData(projectId: string, taskId: string): Promise<ReviewData> {
+  const res = await api.get<ReviewData>(`/projects/${projectId}/match/${taskId}/review`)
+  return res.data
+}
+
+export async function createCorrection(
+  projectId: string,
+  taskId: string,
+  data: CorrectionCreate,
+): Promise<Correction> {
+  const res = await api.post<Correction>(
+    `/projects/${projectId}/match/${taskId}/corrections`,
+    data,
+  )
+  return res.data
+}
+
+export async function listCorrections(
+  projectId: string,
+  taskId: string,
+): Promise<Correction[]> {
+  const res = await api.get<{ corrections: Correction[] }>(
+    `/projects/${projectId}/match/${taskId}/corrections`,
+  )
+  return res.data.corrections
+}
+
+export async function deleteCorrection(
+  projectId: string,
+  taskId: string,
+  correctionId: string,
+): Promise<void> {
+  await api.delete(`/projects/${projectId}/match/${taskId}/corrections/${correctionId}`)
+}
+
+export async function applyCorrections(
+  projectId: string,
+  taskId: string,
+): Promise<ReviewData> {
+  const res = await api.post<ReviewData>(
+    `/projects/${projectId}/match/${taskId}/apply-corrections`,
+  )
   return res.data
 }

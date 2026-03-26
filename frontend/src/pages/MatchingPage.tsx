@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useNavigate } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useDropzone } from "react-dropzone"
 import { toast } from "sonner"
@@ -12,6 +12,7 @@ import {
   XCircle,
   Loader2,
   AlertTriangle,
+  ClipboardCheck,
 } from "lucide-react"
 
 import {
@@ -82,6 +83,7 @@ const CONFIDENCE_COLORS: Record<string, string> = {
 
 export function MatchingPage() {
   const { id: projectId } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [equipmentFilter, setEquipmentFilter] = useState("Leuchte")
@@ -105,7 +107,9 @@ export function MatchingPage() {
   // Match-Ergebnisse laden wenn Matching fertig
   useEffect(() => {
     if (matchTask?.status === "completed" && !matchResults && matchTaskId) {
-      getMatchResults(projectId!, matchTaskId).then(setMatchResults).catch(() => {})
+      getMatchResults(projectId!, matchTaskId)
+        .then(setMatchResults)
+        .catch(() => toast.error("Fehler beim Laden der Match-Ergebnisse"))
     }
   }, [matchTask?.status, matchResults, matchTaskId, projectId])
 
@@ -406,9 +410,18 @@ export function MatchingPage() {
 
               {/* Export-Buttons */}
               <div className="mt-6 flex gap-2">
-                <Button onClick={startExport} disabled={!canExport}>
+                {matchTaskId && (
+                  <Button
+                    variant="default"
+                    onClick={() => navigate(`/projects/${projectId}/matching/${matchTaskId}/review`)}
+                  >
+                    <ClipboardCheck className="mr-2 h-4 w-4" />
+                    Matches ueberpruefen
+                  </Button>
+                )}
+                <Button variant="outline" onClick={startExport} disabled={!canExport}>
                   <Download className="mr-2 h-4 w-4" />
-                  Excel herunterladen
+                  Quick-Export
                 </Button>
                 {exportTask?.status === "completed" && exportTask.id && (
                   <Button variant="outline" asChild>
