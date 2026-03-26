@@ -99,6 +99,72 @@ export interface MatchResults {
   >
 }
 
+// --- Review / Correction Types ---
+
+export interface MatchEntry {
+  room: string
+  aks: string
+  revit_guid: string
+  revit_type: string
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "CORRECTED"
+  sort_axis: string
+  sort_rank: number
+  revit_x?: number
+  revit_y?: number
+  pdf_x?: number
+  pdf_y?: number
+  tables_id?: string
+}
+
+export interface UnmatchedAks {
+  room: string
+  aks: string
+  reason: string
+}
+
+export interface UnmatchedRevit {
+  room: string
+  guid: string
+  reason: string
+}
+
+export interface RoomSummary {
+  matched: number
+  aks_count: number
+  revit_count: number
+  status: "MATCHED" | "NO_AKS" | "NO_REVIT" | "COUNT_MISMATCH"
+  method?: string
+  confidence?: string
+}
+
+export interface Correction {
+  id: string
+  project_id: string
+  task_id: string
+  room: string
+  revit_guid: string
+  original_aks: string | null
+  corrected_aks: string | null
+  correction_type: "swap" | "unmatch" | "manual_match"
+  created_at: string
+}
+
+export interface CorrectionCreate {
+  room: string
+  revit_guid: string
+  original_aks?: string
+  corrected_aks?: string
+  correction_type: "swap" | "unmatch" | "manual_match"
+}
+
+export interface ReviewData {
+  matches: MatchEntry[]
+  unmatched_aks: UnmatchedAks[]
+  unmatched_revit: UnmatchedRevit[]
+  room_summary: Record<string, RoomSummary>
+  corrections: Correction[]
+}
+
 export interface RegistrySummary {
   metadata: {
     total_equipment: number

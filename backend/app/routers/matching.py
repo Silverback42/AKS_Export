@@ -131,19 +131,42 @@ def get_match_results(project_id: str, task_id: str, db: Session = Depends(get_d
 
 
 @router.post("/projects/{project_id}/export/revit-import", response_model=TaskResponse)
-def export_revit_import(project_id: str, db: Session = Depends(get_db)):
-    """Revit-Import-Excel mit AKS-Zuordnungen generieren."""
+def export_revit_import(
+    project_id: str,
+    with_corrections: bool = False,
+    match_task_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Revit-Import-Excel mit AKS-Zuordnungen generieren.
+
+    Args:
+        with_corrections: Korrigierte Match-Daten verwenden
+        match_task_id: Spezifischer Match-Task (sonst neuester)
+    """
     _get_project_or_404(project_id, db)
 
-    # Letzten abgeschlossenen Match-Task finden
-    match_task = (
-        db.query(Task)
-        .filter(Task.project_id == project_id, Task.task_type == "match_revit", Task.status == "completed")
-        .order_by(Task.created_at.desc())
-        .first()
-    )
+    # Match-Task finden
+    if match_task_id:
+        match_task = db.query(Task).filter(
+            Task.id == match_task_id, Task.project_id == project_id,
+            Task.task_type == "match_revit", Task.status == "completed",
+        ).first()
+    else:
+        match_task = (
+            db.query(Task)
+            .filter(Task.project_id == project_id, Task.task_type == "match_revit", Task.status == "completed")
+            .order_by(Task.created_at.desc())
+            .first()
+        )
     if not match_task or not match_task.result_path:
         raise HTTPException(status_code=400, detail="Keine Match-Ergebnisse gefunden. Bitte zuerst Matching ausfuehren.")
+
+    # Korrigierte Datei verwenden falls vorhanden und gewuenscht
+    match_results_path = match_task.result_path
+    if with_corrections:
+        corrected_path = Path(match_task.result_path).parent / f"match_results_{match_task.id}_corrected.json"
+        if corrected_path.exists():
+            match_results_path = str(corrected_path)
 
     # Original-Excel finden fuer Reimport-Format
     upload = (
@@ -167,7 +190,7 @@ def export_revit_import(project_id: str, db: Session = Depends(get_db)):
         task_id=task.id,
         project_id=project_id,
         original_excel_path=str(excel_path),
-        match_results_path=match_task.result_path,
+        match_results_path=match_results_path,
     )
 
     return TaskResponse.model_validate(task)
