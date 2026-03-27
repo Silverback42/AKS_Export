@@ -4,10 +4,13 @@ Refactored from tools/extract_grundriss_aks.py — AKS regex and
 geraet_type_map are now parameters.
 """
 
+import logging
 import re
 from pathlib import Path
 
 import fitz
+
+logger = logging.getLogger(__name__)
 
 from app.core.tools.aks_structure import EBENE_PREFIX
 
@@ -88,13 +91,13 @@ def extract_grundriss_aks(
             if t:
                 block_lines.append(t)
 
-        for line_idx, line in enumerate(block["lines"]):
+        for line in block["lines"]:
             text = "".join(span["text"] for span in line["spans"]).strip()
             if not text:
                 continue
             bbox = line["bbox"]
             # Beschreibung = andere Zeilen im selben Block (ohne AKS-String selbst)
-            other_lines = [l for l in block_lines if l != text]
+            other_lines = [other_line for other_line in block_lines if other_line != text]
             block_description = " ".join(other_lines) if other_lines else None
             all_spans.append({
                 "text": text,
@@ -179,8 +182,8 @@ def extract_grundriss_aks(
             elif fill is None and 3 < w < 80 and 3 < h < 80 and _color_is_bauteil(color):
                 color_symbols.append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
 
-    except Exception:
-        pass  # Fallback: keine Zeichnungsdaten
+    except Exception as e:
+        logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
 
     def _find_equipment_pos(cx: float, cy: float):
         """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
@@ -343,8 +346,8 @@ def extract_grundriss_aks(
             continue
         candidates = []
         for span in all_spans:
-            dy = span["y"] - ref["pdf_y"]
-            dx = abs(span["cx"] - ref["pdf_x"])
+            dy = span["y"] - ref["label_y"]
+            dx = abs(span["cx"] - ref["label_x"])
             if 0 < dy < 25 and dx < 50:
                 candidates.append(span)
         candidates.sort(key=lambda s: s["y"])
