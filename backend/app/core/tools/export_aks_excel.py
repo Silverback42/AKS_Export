@@ -76,6 +76,7 @@ def export_aks_registry_excel(
         "Raum",
         "Betriebsmittel",
         "Betriebsmittel-Typ",
+        "Beschreibung",
         "Hat Schema",
         "Schema-Kinder",
         "Schema-Seiten",
@@ -97,13 +98,14 @@ def export_aks_registry_excel(
         ws.cell(row=row, column=6, value=eq.get("room"))
         ws.cell(row=row, column=7, value=eq.get("geraet"))
         ws.cell(row=row, column=8, value=eq.get("geraet_type"))
-        ws.cell(row=row, column=9, value="Ja" if eq.get("has_schema") else "Nein")
-        ws.cell(row=row, column=10, value=len(eq.get("schema_children", [])))
-        ws.cell(row=row, column=11, value=", ".join(str(p) for p in eq.get("schema_pages", [])))
-        ws.cell(row=row, column=12, value=eq.get("pdf_x"))
-        ws.cell(row=row, column=13, value=eq.get("pdf_y"))
-        ws.cell(row=row, column=14, value=eq.get("source", "grundriss"))
-        ws.cell(row=row, column=15, value=eq.get("cross_ref_text", ""))
+        ws.cell(row=row, column=9, value=eq.get("beschreibung", ""))
+        ws.cell(row=row, column=10, value="Ja" if eq.get("has_schema") else "Nein")
+        ws.cell(row=row, column=11, value=len(eq.get("schema_children", [])))
+        ws.cell(row=row, column=12, value=", ".join(str(p) for p in eq.get("schema_pages", [])))
+        ws.cell(row=row, column=13, value=eq.get("pdf_x"))
+        ws.cell(row=row, column=14, value=eq.get("pdf_y"))
+        ws.cell(row=row, column=15, value=eq.get("source", "grundriss"))
+        ws.cell(row=row, column=16, value=eq.get("cross_ref_text", ""))
 
         fill = GREEN_FILL if eq.get("has_schema") else RED_FILL
         for c in range(1, len(headers) + 1):

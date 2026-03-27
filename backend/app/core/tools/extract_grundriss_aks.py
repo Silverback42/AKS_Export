@@ -81,17 +81,28 @@ def extract_grundriss_aks(
     for block in blocks:
         if "lines" not in block:
             continue
+        # Alle Zeilen des Blocks als Texte sammeln (fuer Beschreibungs-Extraktion)
+        block_lines: list[str] = []
         for line in block["lines"]:
+            t = "".join(span["text"] for span in line["spans"]).strip()
+            if t:
+                block_lines.append(t)
+
+        for line_idx, line in enumerate(block["lines"]):
             text = "".join(span["text"] for span in line["spans"]).strip()
             if not text:
                 continue
             bbox = line["bbox"]
+            # Beschreibung = andere Zeilen im selben Block (ohne AKS-String selbst)
+            other_lines = [l for l in block_lines if l != text]
+            block_description = " ".join(other_lines) if other_lines else None
             all_spans.append({
                 "text": text,
                 "x": bbox[0], "y": bbox[1],
                 "x2": bbox[2], "y2": bbox[3],
                 "cx": (bbox[0] + bbox[2]) / 2,
                 "cy": (bbox[1] + bbox[3]) / 2,
+                "block_description": block_description,
             })
 
     # Bauteil-Position ermitteln — 4-stufige Methode:
@@ -264,6 +275,7 @@ def extract_grundriss_aks(
             sym = _find_equipment_pos(span["cx"], span["cy"])
             entry = {
                 "aks": aks_str,
+                "beschreibung": span.get("block_description"),
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
                 "pdf_y": round(sym[1] if sym else span["cy"], 1),
                 "label_x": round(span["cx"], 1),

@@ -66,6 +66,7 @@ def build_registry(
             "asp": entry.get("asp"),
             "geraet": entry.get("geraet"),
             "geraet_type": entry.get("geraet_type"),
+            "beschreibung": entry.get("beschreibung"),
             "pdf_x": entry.get("pdf_x"),
             "pdf_y": entry.get("pdf_y"),
             "depth": entry.get("depth", len(parts)),
