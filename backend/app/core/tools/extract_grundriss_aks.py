@@ -94,38 +94,146 @@ def extract_grundriss_aks(
                 "cy": (bbox[1] + bbox[3]) / 2,
             })
 
-    # Bauteil-Symbole aus Zeichnungen extrahieren:
-    # Gefüllte Drawings mit sinnvoller Symbolgroesse (5-60 pt) als Bauteil-Kandidaten
-    symbol_centers = []
+    # Bauteil-Position ermitteln — 4-stufige Methode:
+    # 1. Vertikale Verbindungslinie (AKS-Label horizontal, Linie geht nach oben/unten)
+    # 2. Horizontale Verbindungslinie (AKS-Label vertikal, Linie geht nach links/rechts)
+    # 3. Gefuelltes Vektor-Symbol in der Naehe der Textbox
+    # 4. Farb-basiertes Symbol (Leuchte=pink, Lueftung=gelb, Jalousie=teal, Elektro=schwarz)
+
+    # Bekannte Bauteil-Farben (RGB, Toleranz 0.1):
+    # Leuchten: pink/magenta (1, 0, 1) oder aehnlich
+    # Lueftung: gelb (1, 1, 0)
+    # Jalousie: teal (0, 0.5, 0.5) ca.
+    # Elektro: schwarz (0, 0, 0)
+    BAUTEIL_FARBEN = [
+        (1.0, 0.0, 1.0),    # Leuchte — magenta/pink
+        (1.0, 0.0, 0.5),    # Leuchte — variante
+        (1.0, 1.0, 0.0),    # Lueftung — gelb
+        (0.0, 0.5, 0.5),    # Jalousie — teal
+        (0.0, 0.6, 0.6),    # Jalousie — variante
+        (0.0, 0.0, 0.0),    # Elektro — schwarz
+    ]
+
+    def _color_is_bauteil(color) -> bool:
+        if not color:
+            return False
+        for fc in BAUTEIL_FARBEN:
+            if all(abs(color[i] - fc[i]) < 0.15 for i in range(3)):
+                return True
+        return False
+
+    # Verbindungslinien sammeln: schwarz, schmal (< 3pt), lang (> 50pt)
+    vert_lines = []   # (x_mid, y_top, y_bot)  — senkrecht
+    horiz_lines = []  # (x_left, x_right, y_mid)  — waagrecht
+    # Gefuellte Symbole (Groesse 3-80pt)
+    symbol_centers = []   # (cx, cy)
+    # Farb-Symbole als Fallback
+    color_symbols = []    # (cx, cy)
+
     try:
         for drawing in page.get_drawings():
-            if drawing.get("fill") is None:
-                continue
             r = drawing["rect"]
             w = r.x1 - r.x0
             h = r.y1 - r.y0
-            # Symbole sind typischerweise 5-60 pt gross in beiden Dimensionen
-            if 3 < w < 80 and 3 < h < 80:
-                symbol_centers.append((
+            color = drawing.get("color")
+            fill = drawing.get("fill")
+            is_black = color == (0.0, 0.0, 0.0) and fill is None
+
+            # Vertikale Verbindungslinie: schmal, lang, schwarz
+            if w < 3 and h > 50 and is_black:
+                vert_lines.append((
                     (r.x0 + r.x1) / 2,
+                    min(r.y0, r.y1),
+                    max(r.y0, r.y1),
+                ))
+
+            # Horizontale Verbindungslinie: lang, schmal, schwarz
+            elif h < 3 and w > 50 and is_black:
+                horiz_lines.append((
+                    min(r.x0, r.x1),
+                    max(r.x0, r.x1),
                     (r.y0 + r.y1) / 2,
                 ))
-    except Exception:
-        pass  # Fallback: keine Symbol-Positionen verfuegbar
 
-    def _find_symbol_pos(cx: float, cy: float, max_dist: float = 150.0):
-        """Sucht das naechstgelegene Bauteil-Symbol in max_dist Punkten Radius."""
-        best_dist = max_dist
-        best = None
+            # Gefuelltes Vektor-Symbol (nicht schwarz, sinnvolle Groesse)
+            elif fill is not None and 3 < w < 80 and 3 < h < 80:
+                cx_s = (r.x0 + r.x1) / 2
+                cy_s = (r.y0 + r.y1) / 2
+                symbol_centers.append((cx_s, cy_s))
+                # Zusaetzlich als Farb-Symbol merken wenn Bauteil-Farbe
+                if _color_is_bauteil(fill):
+                    color_symbols.append((cx_s, cy_s))
+
+            # Farb-Kontur ohne Fill (stroke only, Bauteil-Farbe)
+            elif fill is None and 3 < w < 80 and 3 < h < 80 and _color_is_bauteil(color):
+                color_symbols.append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+
+    except Exception:
+        pass  # Fallback: keine Zeichnungsdaten
+
+    def _find_equipment_pos(cx: float, cy: float):
+        """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
+
+        1. Vertikale Verbindungslinie (Linie nach oben/unten vom Label)
+        2. Horizontale Verbindungslinie (Linie nach links/rechts)
+        3. Naechstes gefuelltes Vektor-Symbol in 150pt
+        4. Naechstes Bauteil-Farb-Symbol in 200pt
+        """
+        TOLERANZ_LINIE = 12.0  # pt — x-Abstand zum Label-Mittelpunkt
+
+        # Methode 1: Vertikale Linie — Linie mit kleinstem |x_line - cx|
+        best_dx = TOLERANZ_LINIE
+        best_line = None
+        for lx, ly_top, ly_bot in vert_lines:
+            dx = abs(lx - cx)
+            if dx < best_dx and ly_top < cy - 30:
+                best_dx = dx
+                best_line = (lx, ly_top)
+        if best_line:
+            return best_line
+
+        # Methode 2: Horizontale Linie — Linie mit kleinstem |y_line - cy|
+        best_dy = TOLERANZ_LINIE
+        best_hline = None
+        for lx_l, lx_r, ly in horiz_lines:
+            dy = abs(ly - cy)
+            if dy < best_dy:
+                # Linie muss vom Label wegzeigen (links oder rechts)
+                if lx_r < cx - 30:
+                    # Linie links vom Label: Endpunkt = linkes Ende
+                    best_dy = dy
+                    best_hline = (lx_l, ly)
+                elif lx_l > cx + 30:
+                    # Linie rechts vom Label: Endpunkt = rechtes Ende
+                    best_dy = dy
+                    best_hline = (lx_r, ly)
+        if best_hline:
+            return best_hline
+
+        # Methode 3: Gefuelltes Symbol in 150pt Radius
+        best_dist = 150.0
+        best_sym = None
         for sx, sy in symbol_centers:
             d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
             if d < best_dist:
                 best_dist = d
-                best = (sx, sy)
-        return best
+                best_sym = (sx, sy)
+        if best_sym:
+            return best_sym
+
+        # Methode 4: Bauteil-Farb-Symbol in 200pt Radius
+        best_dist = 200.0
+        best_col = None
+        for sx, sy in color_symbols:
+            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best_col = (sx, sy)
+        return best_col  # None wenn nichts gefunden -> Fallback auf Textbox-Mitte
 
     if on_progress:
-        on_progress(30, f"{len(all_spans)} Spans, {len(symbol_centers)} Symbole gefunden...")
+        on_progress(30, f"{len(all_spans)} Spans, {len(vert_lines)} senkr./"
+                    f"{len(horiz_lines)} waagr. Linien, {len(symbol_centers)} Symbole...")
 
     compiled_regex = re.compile(aks_regex)
     # Projekt-Code aus Regex extrahieren fuer Normalisierung
@@ -153,7 +261,7 @@ def extract_grundriss_aks(
 
             parts = aks_str.split("_")
             # Bauteil-Symbol suchen; Fallback: Textbox-Mitte
-            sym = _find_symbol_pos(span["cx"], span["cy"])
+            sym = _find_equipment_pos(span["cx"], span["cy"])
             entry = {
                 "aks": aks_str,
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
@@ -187,7 +295,7 @@ def extract_grundriss_aks(
             continue
 
         if "Siehe Regelschema" in text:
-            sym = _find_symbol_pos(span["cx"], span["cy"])
+            sym = _find_equipment_pos(span["cx"], span["cy"])
             ref = {
                 "text": text,
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
