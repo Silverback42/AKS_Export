@@ -74,7 +74,7 @@ def extract_grundriss_aks(
     page_size = [page.rect.width, page.rect.height]
 
     if on_progress:
-        on_progress(10, "Lese Text-Spans...")
+        on_progress(10, "Lese Text-Spans und Symbole...")
 
     blocks = page.get_text("dict")["blocks"]
     all_spans = []
@@ -94,8 +94,38 @@ def extract_grundriss_aks(
                 "cy": (bbox[1] + bbox[3]) / 2,
             })
 
+    # Bauteil-Symbole aus Zeichnungen extrahieren:
+    # Gefüllte Drawings mit sinnvoller Symbolgroesse (5-60 pt) als Bauteil-Kandidaten
+    symbol_centers = []
+    try:
+        for drawing in page.get_drawings():
+            if drawing.get("fill") is None:
+                continue
+            r = drawing["rect"]
+            w = r.x1 - r.x0
+            h = r.y1 - r.y0
+            # Symbole sind typischerweise 5-60 pt gross in beiden Dimensionen
+            if 3 < w < 80 and 3 < h < 80:
+                symbol_centers.append((
+                    (r.x0 + r.x1) / 2,
+                    (r.y0 + r.y1) / 2,
+                ))
+    except Exception:
+        pass  # Fallback: keine Symbol-Positionen verfuegbar
+
+    def _find_symbol_pos(cx: float, cy: float, max_dist: float = 150.0):
+        """Sucht das naechstgelegene Bauteil-Symbol in max_dist Punkten Radius."""
+        best_dist = max_dist
+        best = None
+        for sx, sy in symbol_centers:
+            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best = (sx, sy)
+        return best
+
     if on_progress:
-        on_progress(30, f"{len(all_spans)} Spans gefunden, extrahiere AKS...")
+        on_progress(30, f"{len(all_spans)} Spans, {len(symbol_centers)} Symbole gefunden...")
 
     compiled_regex = re.compile(aks_regex)
     # Projekt-Code aus Regex extrahieren fuer Normalisierung
@@ -122,10 +152,14 @@ def extract_grundriss_aks(
                 )
 
             parts = aks_str.split("_")
+            # Bauteil-Symbol suchen; Fallback: Textbox-Mitte
+            sym = _find_symbol_pos(span["cx"], span["cy"])
             entry = {
                 "aks": aks_str,
-                "pdf_x": round(span["cx"], 1),
-                "pdf_y": round(span["cy"], 1),
+                "pdf_x": round(sym[0] if sym else span["cx"], 1),
+                "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
                 "bbox": [round(span["x"], 1), round(span["y"], 1),
                          round(span["x2"], 1), round(span["y2"], 1)],
             }
@@ -153,10 +187,13 @@ def extract_grundriss_aks(
             continue
 
         if "Siehe Regelschema" in text:
+            sym = _find_symbol_pos(span["cx"], span["cy"])
             ref = {
                 "text": text,
-                "pdf_x": round(span["cx"], 1),
-                "pdf_y": round(span["cy"], 1),
+                "pdf_x": round(sym[0] if sym else span["cx"], 1),
+                "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
             }
             inline_match = re.search(r"Siehe Regelschema\s+(\w{3,}\d{3,})", text)
             if inline_match:
