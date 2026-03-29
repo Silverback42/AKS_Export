@@ -144,8 +144,8 @@ def extract_grundriss_aks(
     # Farb-Symbole als Fallback
     color_symbols = []    # (cx, cy)
 
-    try:
-        for drawing in page.get_drawings():
+    for drawing in page.get_drawings():
+        try:
             r = drawing["rect"]
             w = r.x1 - r.x0
             h = r.y1 - r.y0
@@ -182,8 +182,9 @@ def extract_grundriss_aks(
             elif fill is None and 3 < w < 80 and 3 < h < 80 and _color_is_bauteil(color):
                 color_symbols.append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
 
-    except Exception as e:
-        logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
+        except Exception as e:
+            logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
+            continue
 
     def _find_equipment_pos(cx: float, cy: float):
         """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
@@ -196,11 +197,13 @@ def extract_grundriss_aks(
         TOLERANZ_LINIE = 12.0  # pt — x-Abstand zum Label-Mittelpunkt
 
         # Methode 1: Vertikale Linie — Linie mit kleinstem |x_line - cx|
+        # Akzeptiere Linien die vom Label nach oben, nach unten oder durch das Label gehen
         best_dx = TOLERANZ_LINIE
         best_line = None
         for lx, ly_top, ly_bot in vert_lines:
             dx = abs(lx - cx)
-            if dx < best_dx and ly_top < cy - 30:
+            spans_label = ly_top < cy - 30 or ly_bot > cy + 30 or (ly_top <= cy <= ly_bot)
+            if dx < best_dx and spans_label:
                 best_dx = dx
                 best_line = (lx, ly_top)
         if best_line:
