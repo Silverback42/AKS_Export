@@ -380,6 +380,8 @@ def extract_grundriss_aks(
                 "anlage": None,
                 "pdf_x": round(span["cx"], 1),
                 "pdf_y": round(span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
             })
 
     doc.close()
