@@ -4,10 +4,13 @@ Refactored from tools/extract_grundriss_aks.py — AKS regex and
 geraet_type_map are now parameters.
 """
 
+import logging
 import re
 from pathlib import Path
 
 import fitz
+
+logger = logging.getLogger(__name__)
 
 from app.core.tools.aks_structure import EBENE_PREFIX
 
@@ -74,28 +77,180 @@ def extract_grundriss_aks(
     page_size = [page.rect.width, page.rect.height]
 
     if on_progress:
-        on_progress(10, "Lese Text-Spans...")
+        on_progress(10, "Lese Text-Spans und Symbole...")
 
     blocks = page.get_text("dict")["blocks"]
     all_spans = []
     for block in blocks:
         if "lines" not in block:
             continue
+        # Alle Zeilen des Blocks als Texte sammeln (fuer Beschreibungs-Extraktion)
+        block_lines: list[str] = []
+        for line in block["lines"]:
+            t = "".join(span["text"] for span in line["spans"]).strip()
+            if t:
+                block_lines.append(t)
+
         for line in block["lines"]:
             text = "".join(span["text"] for span in line["spans"]).strip()
             if not text:
                 continue
             bbox = line["bbox"]
+            # Beschreibung = andere Zeilen im selben Block (ohne AKS-String selbst)
+            other_lines = [other_line for other_line in block_lines if other_line != text]
+            block_description = " ".join(other_lines) if other_lines else None
             all_spans.append({
                 "text": text,
                 "x": bbox[0], "y": bbox[1],
                 "x2": bbox[2], "y2": bbox[3],
                 "cx": (bbox[0] + bbox[2]) / 2,
                 "cy": (bbox[1] + bbox[3]) / 2,
+                "block_description": block_description,
             })
 
+    # Bauteil-Position ermitteln — 4-stufige Methode:
+    # 1. Vertikale Verbindungslinie (AKS-Label horizontal, Linie geht nach oben/unten)
+    # 2. Horizontale Verbindungslinie (AKS-Label vertikal, Linie geht nach links/rechts)
+    # 3. Gefuelltes Vektor-Symbol in der Naehe der Textbox
+    # 4. Farb-basiertes Symbol (Leuchte=pink, Lueftung=gelb, Jalousie=teal, Elektro=schwarz)
+
+    # Bekannte Bauteil-Farben (RGB, Toleranz 0.1):
+    # Leuchten: pink/magenta (1, 0, 1) oder aehnlich
+    # Lueftung: gelb (1, 1, 0)
+    # Jalousie: teal (0, 0.5, 0.5) ca.
+    # Elektro: schwarz (0, 0, 0)
+    BAUTEIL_FARBEN = [
+        (1.0, 0.0, 1.0),    # Leuchte — magenta/pink
+        (1.0, 0.0, 0.5),    # Leuchte — variante
+        (1.0, 1.0, 0.0),    # Lueftung — gelb
+        (0.0, 0.5, 0.5),    # Jalousie — teal
+        (0.0, 0.6, 0.6),    # Jalousie — variante
+        (0.0, 0.0, 0.0),    # Elektro — schwarz
+    ]
+
+    def _color_is_bauteil(color) -> bool:
+        if not color:
+            return False
+        for fc in BAUTEIL_FARBEN:
+            if all(abs(color[i] - fc[i]) < 0.15 for i in range(3)):
+                return True
+        return False
+
+    # Verbindungslinien sammeln: schwarz, schmal (< 3pt), lang (> 50pt)
+    vert_lines = []   # (x_mid, y_top, y_bot)  — senkrecht
+    horiz_lines = []  # (x_left, x_right, y_mid)  — waagrecht
+    # Gefuellte Symbole (Groesse 3-80pt)
+    symbol_centers = []   # (cx, cy)
+    # Farb-Symbole als Fallback
+    color_symbols = []    # (cx, cy)
+
+    for drawing in page.get_drawings():
+        try:
+            r = drawing["rect"]
+            w = r.x1 - r.x0
+            h = r.y1 - r.y0
+            color = drawing.get("color")
+            fill = drawing.get("fill")
+            is_black = color == (0.0, 0.0, 0.0) and fill is None
+
+            # Vertikale Verbindungslinie: schmal, lang, schwarz
+            if w < 3 and h > 50 and is_black:
+                vert_lines.append((
+                    (r.x0 + r.x1) / 2,
+                    min(r.y0, r.y1),
+                    max(r.y0, r.y1),
+                ))
+
+            # Horizontale Verbindungslinie: lang, schmal, schwarz
+            elif h < 3 and w > 50 and is_black:
+                horiz_lines.append((
+                    min(r.x0, r.x1),
+                    max(r.x0, r.x1),
+                    (r.y0 + r.y1) / 2,
+                ))
+
+            # Gefuelltes Vektor-Symbol (nicht schwarz, sinnvolle Groesse)
+            elif fill is not None and 3 < w < 80 and 3 < h < 80:
+                cx_s = (r.x0 + r.x1) / 2
+                cy_s = (r.y0 + r.y1) / 2
+                symbol_centers.append((cx_s, cy_s))
+                # Zusaetzlich als Farb-Symbol merken wenn Bauteil-Farbe
+                if _color_is_bauteil(fill):
+                    color_symbols.append((cx_s, cy_s))
+
+            # Farb-Kontur ohne Fill (stroke only, Bauteil-Farbe)
+            elif fill is None and 3 < w < 80 and 3 < h < 80 and _color_is_bauteil(color):
+                color_symbols.append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+
+        except Exception as e:
+            logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
+            continue
+
+    def _find_equipment_pos(cx: float, cy: float):
+        """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
+
+        1. Vertikale Verbindungslinie (Linie nach oben/unten vom Label)
+        2. Horizontale Verbindungslinie (Linie nach links/rechts)
+        3. Naechstes gefuelltes Vektor-Symbol in 150pt
+        4. Naechstes Bauteil-Farb-Symbol in 200pt
+        """
+        TOLERANZ_LINIE = 12.0  # pt — x-Abstand zum Label-Mittelpunkt
+
+        # Methode 1: Vertikale Linie — Linie mit kleinstem |x_line - cx|
+        # Akzeptiere Linien die vom Label nach oben, nach unten oder durch das Label gehen
+        best_dx = TOLERANZ_LINIE
+        best_line = None
+        for lx, ly_top, ly_bot in vert_lines:
+            dx = abs(lx - cx)
+            spans_label = ly_top < cy - 30 or ly_bot > cy + 30 or (ly_top <= cy <= ly_bot)
+            if dx < best_dx and spans_label:
+                best_dx = dx
+                best_line = (lx, ly_top)
+        if best_line:
+            return best_line
+
+        # Methode 2: Horizontale Linie — Linie mit kleinstem |y_line - cy|
+        best_dy = TOLERANZ_LINIE
+        best_hline = None
+        for lx_l, lx_r, ly in horiz_lines:
+            dy = abs(ly - cy)
+            if dy < best_dy:
+                # Linie muss vom Label wegzeigen (links oder rechts)
+                if lx_r < cx - 30:
+                    # Linie links vom Label: Endpunkt = linkes Ende
+                    best_dy = dy
+                    best_hline = (lx_l, ly)
+                elif lx_l > cx + 30:
+                    # Linie rechts vom Label: Endpunkt = rechtes Ende
+                    best_dy = dy
+                    best_hline = (lx_r, ly)
+        if best_hline:
+            return best_hline
+
+        # Methode 3: Gefuelltes Symbol in 150pt Radius
+        best_dist = 150.0
+        best_sym = None
+        for sx, sy in symbol_centers:
+            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best_sym = (sx, sy)
+        if best_sym:
+            return best_sym
+
+        # Methode 4: Bauteil-Farb-Symbol in 200pt Radius
+        best_dist = 200.0
+        best_col = None
+        for sx, sy in color_symbols:
+            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best_col = (sx, sy)
+        return best_col  # None wenn nichts gefunden -> Fallback auf Textbox-Mitte
+
     if on_progress:
-        on_progress(30, f"{len(all_spans)} Spans gefunden, extrahiere AKS...")
+        on_progress(30, f"{len(all_spans)} Spans, {len(vert_lines)} senkr./"
+                    f"{len(horiz_lines)} waagr. Linien, {len(symbol_centers)} Symbole...")
 
     compiled_regex = re.compile(aks_regex)
     # Projekt-Code aus Regex extrahieren fuer Normalisierung
@@ -122,10 +277,15 @@ def extract_grundriss_aks(
                 )
 
             parts = aks_str.split("_")
+            # Bauteil-Symbol suchen; Fallback: Textbox-Mitte
+            sym = _find_equipment_pos(span["cx"], span["cy"])
             entry = {
                 "aks": aks_str,
-                "pdf_x": round(span["cx"], 1),
-                "pdf_y": round(span["cy"], 1),
+                "beschreibung": span.get("block_description"),
+                "pdf_x": round(sym[0] if sym else span["cx"], 1),
+                "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
                 "bbox": [round(span["x"], 1), round(span["y"], 1),
                          round(span["x2"], 1), round(span["y2"], 1)],
             }
@@ -153,12 +313,15 @@ def extract_grundriss_aks(
             continue
 
         if "Siehe Regelschema" in text:
+            sym = _find_equipment_pos(span["cx"], span["cy"])
             ref = {
                 "text": text,
-                "pdf_x": round(span["cx"], 1),
-                "pdf_y": round(span["cy"], 1),
+                "pdf_x": round(sym[0] if sym else span["cx"], 1),
+                "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
             }
-            inline_match = re.search(r"Siehe Regelschema\s+(\w{3,}\d{3,})", text)
+            inline_match = re.search(r"Siehe Regelschema\s+(\w{2,}\d{2,})", text)
             if inline_match:
                 ref["type"] = "inline"
                 ref["anlage"] = inline_match.group(1)
@@ -186,14 +349,17 @@ def extract_grundriss_aks(
             continue
         candidates = []
         for span in all_spans:
-            dy = span["y"] - ref["pdf_y"]
-            dx = abs(span["cx"] - ref["pdf_x"])
-            if 0 < dy < 25 and dx < 50:
+            dy = span["y"] - ref["label_y"]
+            dx = abs(span["cx"] - ref["label_x"])
+            # Gleiche Zeile rechts vom Label (dx > 10 damit nicht der Label selbst) oder direkt darunter
+            same_line_right = abs(dy) < 15 and span["cx"] > ref["label_x"] + 10
+            below_label = 0 < dy < 35 and dx < 80
+            if same_line_right or below_label:
                 candidates.append(span)
-        candidates.sort(key=lambda s: s["y"])
+        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), s["cx"]))
 
         for cand in candidates:
-            anlage_match = re.match(r"^(\w{3,}\d{3,})$", cand["text"])
+            anlage_match = re.match(r"^(\w{2,}\d{2,})$", cand["text"])
             if anlage_match:
                 ref["anlage"] = anlage_match.group(1)
                 break
@@ -217,6 +383,8 @@ def extract_grundriss_aks(
                 "anlage": None,
                 "pdf_x": round(span["cx"], 1),
                 "pdf_y": round(span["cy"], 1),
+                "label_x": round(span["cx"], 1),
+                "label_y": round(span["cy"], 1),
             })
 
     doc.close()
