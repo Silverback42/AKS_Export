@@ -321,7 +321,7 @@ def extract_grundriss_aks(
                 "label_x": round(span["cx"], 1),
                 "label_y": round(span["cy"], 1),
             }
-            inline_match = re.search(r"Siehe Regelschema\s+(\w{3,}\d{3,})", text)
+            inline_match = re.search(r"Siehe Regelschema\s+(\w{2,}\d{2,})", text)
             if inline_match:
                 ref["type"] = "inline"
                 ref["anlage"] = inline_match.group(1)
@@ -351,12 +351,15 @@ def extract_grundriss_aks(
         for span in all_spans:
             dy = span["y"] - ref["label_y"]
             dx = abs(span["cx"] - ref["label_x"])
-            if 0 < dy < 25 and dx < 50:
+            # Gleiche Zeile rechts vom Label (dx > 10 damit nicht der Label selbst) oder direkt darunter
+            same_line_right = abs(dy) < 15 and span["cx"] > ref["label_x"] + 10
+            below_label = 0 < dy < 35 and dx < 80
+            if same_line_right or below_label:
                 candidates.append(span)
-        candidates.sort(key=lambda s: s["y"])
+        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), s["cx"]))
 
         for cand in candidates:
-            anlage_match = re.match(r"^(\w{3,}\d{3,})$", cand["text"])
+            anlage_match = re.match(r"^(\w{2,}\d{2,})$", cand["text"])
             if anlage_match:
                 ref["anlage"] = anlage_match.group(1)
                 break
