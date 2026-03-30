@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from app.config import settings
-from app.core.tools import extract_schema_aks, extract_grundriss_aks, build_registry, export_aks_registry_excel
+from app.core.tools import extract_schema_aks, extract_grundriss_aks, build_registry, export_aks_registry_excel, generate_aks_overlay
 
 
 def _intermediate_dir(project_id: str) -> Path:
@@ -286,4 +286,29 @@ def run_aks_excel_export(
     export_aks_registry_excel(registry_data, out_path, on_progress=on_progress)
 
     on_progress(100, "Excel erstellt")
+    return str(out_path)
+
+
+def run_aks_overlay_export(
+    on_progress,
+    project_id: str,
+    grundriss_pdf_path: str,
+) -> str:
+    """AKS-Koordinaten als PDF-Overlay exportieren (Qualitaetskontrolle)."""
+    inter_dir = _intermediate_dir(project_id)
+    registry_path = inter_dir / "aks_registry.json"
+
+    if not registry_path.exists():
+        raise FileNotFoundError("AKS-Registry fehlt. Bitte zuerst Extraktion durchfuehren.")
+
+    on_progress(5, "Lade Registry...")
+    registry_data = _load_json(registry_path)
+
+    export_dir = Path(settings.data_dir) / "projects" / project_id / "exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    out_path = export_dir / "aks_overlay.pdf"
+
+    generate_aks_overlay(registry_data, grundriss_pdf_path, out_path, on_progress=on_progress)
+
+    on_progress(100, "Overlay erstellt")
     return str(out_path)

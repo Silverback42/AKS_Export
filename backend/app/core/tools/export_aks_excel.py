@@ -82,6 +82,7 @@ def export_aks_registry_excel(
         "Schema-Seiten",
         "PDF X",
         "PDF Y",
+        "Koordinaten-Quelle",
         "Quelle",
         "Querverweis",
     ]
@@ -104,8 +105,9 @@ def export_aks_registry_excel(
         ws.cell(row=row, column=12, value=", ".join(str(p) for p in eq.get("schema_pages", [])))
         ws.cell(row=row, column=13, value=eq.get("pdf_x"))
         ws.cell(row=row, column=14, value=eq.get("pdf_y"))
-        ws.cell(row=row, column=15, value=eq.get("source", "grundriss"))
-        ws.cell(row=row, column=16, value=eq.get("cross_ref_text", ""))
+        ws.cell(row=row, column=15, value=eq.get("pos_method", "Schema"))
+        ws.cell(row=row, column=16, value=eq.get("source", "grundriss"))
+        ws.cell(row=row, column=17, value=eq.get("cross_ref_text", ""))
 
         fill = GREEN_FILL if eq.get("has_schema") else RED_FILL
         for c in range(1, len(headers) + 1):

@@ -17,6 +17,7 @@ from app.services.extraction_service import (
     run_registry_build,
     run_unified_extraction,
     run_aks_excel_export,
+    run_aks_overlay_export,
 )
 
 router = APIRouter(tags=["extraction"])
@@ -195,6 +196,27 @@ def export_aks_registry(project_id: str, db: Session = Depends(get_db)):
     return TaskResponse.model_validate(task)
 
 
+@router.post("/projects/{project_id}/export/aks-overlay", response_model=TaskResponse)
+def export_aks_overlay(project_id: str, db: Session = Depends(get_db)):
+    """AKS-Koordinaten als PDF-Overlay exportieren (Qualitaetskontrolle)."""
+    _get_project_or_404(project_id, db)
+
+    # Neuesten Grundriss-Upload finden
+    upload = _find_upload_by_type(project_id, "grundriss_pdf", db)
+    grundriss_path = Path(settings.data_dir) / upload.file_path
+
+    task = _create_task(project_id, "export_aks_overlay", db)
+
+    run_in_background(
+        task.id,
+        run_aks_overlay_export,
+        project_id=project_id,
+        grundriss_pdf_path=str(grundriss_path),
+    )
+
+    return TaskResponse.model_validate(task)
+
+
 @router.get("/projects/{project_id}/export/{task_id}/download")
 def download_export(project_id: str, task_id: str, db: Session = Depends(get_db)):
     """Exportierte Excel-Datei herunterladen."""
@@ -212,8 +234,13 @@ def download_export(project_id: str, task_id: str, db: Session = Depends(get_db)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Export-Datei nicht gefunden")
 
+    media_type = (
+        "application/pdf"
+        if file_path.suffix.lower() == ".pdf"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
     return FileResponse(
         path=str(file_path),
         filename=file_path.name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media_type,
     )

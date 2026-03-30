@@ -127,7 +127,7 @@ def extract_title_block(page) -> dict:
     for entry in all_lines:
         text = entry["text"]
 
-        anlage_match = re.match(r"^=(\w{3,}\d{3,})", text)
+        anlage_match = re.match(r"^=([A-Za-z]{2,}\d{2,})", text)
         if anlage_match:
             metadata["anlage_code"] = anlage_match.group(1)
 
@@ -200,6 +200,32 @@ def extract_schema_aks(
         matches = compiled_regex.findall(text)
         unique_matches = list(dict.fromkeys(matches))
 
+        # Beschreibungs-Index aufbauen: AKS -> Text links davon in derselben Zeile
+        beschreibung_by_aks: dict[str, str] = {}
+        blocks = page.get_text("dict")["blocks"]
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                line_spans = []
+                for span in line["spans"]:
+                    t = span["text"].strip()
+                    if t:
+                        line_spans.append({"text": t, "x": span["bbox"][0], "x2": span["bbox"][2]})
+                # AKS-Span in dieser Zeile suchen
+                for span in line_spans:
+                    aks_m = compiled_regex.search(span["text"])
+                    if not aks_m:
+                        continue
+                    aks_found = aks_m.group(0)
+                    # Text links vom AKS-Span sammeln (kleineres x, gleiche Zeile)
+                    left_texts = [
+                        s["text"] for s in line_spans
+                        if s["x2"] <= span["x"] + 5 and not compiled_regex.search(s["text"])
+                    ]
+                    if left_texts:
+                        beschreibung_by_aks[aks_found] = " ".join(left_texts)
+
         if title["anlage_code"] and title["anlage_code"] not in anlagen:
             anlagen[title["anlage_code"]] = {
                 "description": title["anlage_description"],
@@ -223,9 +249,15 @@ def extract_schema_aks(
         for aks_str in unique_matches:
             parsed = parse_aks(aks_str, room_code_pattern, room_format)
             if parsed:
+                # Interne AKS herausfiltern: Betriebsmittel darf nicht rein numerisch sein
+                # (z.B. "01", "02" sind interne Planungssymbole, werden nicht gezeichnet)
+                geraet = parsed.get("geraet", "")
+                if geraet and re.match(r"^\d+$", geraet):
+                    continue
                 parsed["source_page"] = i + 1
                 parsed["page_type"] = page_type
                 parsed["anlage_ref"] = title["anlage_code"]
+                parsed["beschreibung"] = beschreibung_by_aks.get(aks_str)
                 all_aks.append(parsed)
 
     doc.close()
