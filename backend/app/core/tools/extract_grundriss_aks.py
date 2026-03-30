@@ -150,9 +150,15 @@ def extract_grundriss_aks(
                 return True
         return False
 
-    # Verbindungslinien sammeln: schwarz, schmal (< 3pt), lang (> 50pt)
-    vert_lines = []   # (x_mid, y_top, y_bot)  — senkrecht
-    horiz_lines = []  # (x_left, x_right, y_mid)  — waagrecht
+    # Verbindungslinien sammeln: aus den Pfad-Segmenten (items) statt der Bounding-Box.
+    # Jede Drawing kann mehrere "l"-Segmente enthalten (z.B. bei geknickten Fuehrungslinien).
+    # vert_lines: (x_mid, y_top, y_bot, p0_y, p1_y) — senkrechte Segmente
+    # horiz_lines: (x_left, x_right, y_mid)         — waagrechte Segmente
+    # line_paths: Alle schwarzen Pfad-Drawings mit ihren Endpunkten fuer Knick-Erkennung
+    #             [(pt_x, pt_y), ...] — alle Punkte des Pfades
+    vert_lines = []
+    horiz_lines = []
+    line_paths = []   # [(x, y), ...]  — alle Eckpunkte jeder schwarzen Fuehrungslinie
     # Gefuellte Symbole (Groesse 3-80pt)
     symbol_centers = []   # (cx, cy)
     # Farb-Symbole als Fallback
@@ -167,21 +173,46 @@ def extract_grundriss_aks(
             fill = drawing.get("fill")
             is_black = color == (0.0, 0.0, 0.0) and fill is None
 
-            # Vertikale Verbindungslinie: schmal, lang, schwarz
-            if w < 3 and h > 50 and is_black:
-                vert_lines.append((
-                    (r.x0 + r.x1) / 2,
-                    min(r.y0, r.y1),
-                    max(r.y0, r.y1),
-                ))
+            # Fuehrungslinien: schwarz, ungefuellt, Bounding-Box-Diagonale > 30pt
+            # Einzelne Segmente aus items[] auswerten statt nur die Gesamt-Bbox.
+            if is_black:
+                diag = (w ** 2 + h ** 2) ** 0.5
+                if diag > 30:
+                    # Alle Endpunkte dieser Drawing sammeln (fuer Knick-Pfade)
+                    path_pts: list[tuple[float, float]] = []
+                    for seg in drawing.get("items", []):
+                        if seg[0] == "l":
+                            p0, p1 = seg[1], seg[2]
+                            path_pts.append((p0.x, p0.y))
+                            path_pts.append((p1.x, p1.y))
 
-            # Horizontale Verbindungslinie: lang, schmal, schwarz
-            elif h < 3 and w > 50 and is_black:
-                horiz_lines.append((
-                    min(r.x0, r.x1),
-                    max(r.x0, r.x1),
-                    (r.y0 + r.y1) / 2,
-                ))
+                            dx_seg = abs(p1.x - p0.x)
+                            dy_seg = abs(p1.y - p0.y)
+
+                            # Senkrechtes Segment: Δx < 3pt, Δy > 30pt
+                            if dx_seg < 3 and dy_seg > 30:
+                                x_mid = (p0.x + p1.x) / 2
+                                vert_lines.append((
+                                    x_mid,
+                                    min(p0.y, p1.y),   # y_top
+                                    max(p0.y, p1.y),   # y_bot
+                                    p0.y,              # Rohpunkt A
+                                    p1.y,              # Rohpunkt B
+                                ))
+
+                            # Waagrechtes Segment: Δy < 3pt, Δx > 30pt
+                            elif dy_seg < 3 and dx_seg > 30:
+                                y_mid = (p0.y + p1.y) / 2
+                                horiz_lines.append((
+                                    min(p0.x, p1.x),
+                                    max(p0.x, p1.x),
+                                    y_mid,
+                                ))
+
+                    if path_pts:
+                        # Duplikate entfernen und als Pfad speichern
+                        unique_pts = list(dict.fromkeys(path_pts))
+                        line_paths.append(unique_pts)
 
             # Gefuelltes Vektor-Symbol (nicht schwarz, sinnvolle Groesse)
             elif fill is not None and 3 < w < 80 and 3 < h < 80:
@@ -201,45 +232,99 @@ def extract_grundriss_aks(
             continue
 
     def _find_equipment_pos(cx: float, cy: float) -> tuple[tuple | None, str]:
-        """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
+        """Ermittelt Equipment-Position fuer eine AKS-Textbox.
+
+        Strategie (5 Methoden in Reihenfolge):
+        1. Linie-V: Senkrechtes Segment nahe Label-x — den vom Label entfernten Endpunkt nehmen
+        2. Linie-H: Waagrechtes Segment nahe Label-y — das vom Label weg zeigende Ende
+        3. Linie-Pfad: Bei geknickten Fuehrungslinien — Endpunkt des gesamten Pfades der
+           am weitesten vom Label entfernt liegt (nicht der Knick-Punkt)
+        4. Symbol-an-Linie: Symbol (Farbe/gefuellt) in 30pt Radius um den Leitungsendpunkt
+        5. Symbol-gefuellt / Symbol-Farbe: naechstes Symbol ohne Leitungshinweis
+        6. Fallback-Text: Label-Mittelpunkt
 
         Returns:
-            (pos, method) — pos ist (x, y) oder None, method beschreibt die Erkennungsquelle
+            (pos, method) — pos ist (x, y) oder None
         """
-        TOLERANZ_LINIE = 12.0  # pt — x-Abstand zum Label-Mittelpunkt
+        TOLERANZ_LINIE = 12.0  # pt — maximaler Abstand Label-Mitte zu Linie
 
-        # Methode 1: Vertikale Linie — Linie mit kleinstem |x_line - cx|
-        # Akzeptiere Linien die vom Label nach oben, nach unten oder durch das Label gehen
+        # --- Methode 1: Senkrechtes Segment ---
+        # Endpunkt waehlen der am weitesten vom Label-y entfernt liegt (= Anlage)
         best_dx = TOLERANZ_LINIE
-        best_line = None
-        for lx, ly_top, ly_bot in vert_lines:
+        best_line: tuple | None = None
+        for lx, ly_top, ly_bot, p0y, p1y in vert_lines:
             dx = abs(lx - cx)
-            spans_label = ly_top < cy - 30 or ly_bot > cy + 30 or (ly_top <= cy <= ly_bot)
-            if dx < best_dx and spans_label:
+            # Segment muss Label ueberspannen oder eindeutig ober-/unterhalb liegen
+            spans = ly_top < cy - 10 or ly_bot > cy + 10 or (ly_top <= cy <= ly_bot)
+            if dx < best_dx and spans:
                 best_dx = dx
-                best_line = (lx, ly_top)
-        if best_line:
-            return best_line, "Linie-V"
+                # Den Endpunkt nehmen der weiter vom Label-Mittelpunkt (cy) entfernt ist
+                far_y = p0y if abs(p0y - cy) >= abs(p1y - cy) else p1y
+                best_line = (lx, far_y)
 
-        # Methode 2: Horizontale Linie — Linie mit kleinstem |y_line - cy|
+        # --- Methode 2: Waagrechtes Segment ---
         best_dy = TOLERANZ_LINIE
-        best_hline = None
+        best_hline: tuple | None = None
         for lx_l, lx_r, ly in horiz_lines:
             dy = abs(ly - cy)
             if dy < best_dy:
-                # Linie muss vom Label wegzeigen (links oder rechts)
-                if lx_r < cx - 30:
-                    # Linie links vom Label: Endpunkt = linkes Ende
+                # Linie links vom Label: Endpunkt = linkes Ende (zeigt zur Anlage)
+                if lx_r < cx - 10:
                     best_dy = dy
                     best_hline = (lx_l, ly)
-                elif lx_l > cx + 30:
-                    # Linie rechts vom Label: Endpunkt = rechtes Ende
+                # Linie rechts vom Label: Endpunkt = rechtes Ende
+                elif lx_l > cx + 10:
                     best_dy = dy
                     best_hline = (lx_r, ly)
-        if best_hline:
-            return best_hline, "Linie-H"
 
-        # Methode 3: Gefuelltes Symbol in 150pt Radius
+        # Den besten Leitungs-Endpunkt aus Methode 1+2 festlegen
+        line_endpoint: tuple | None = best_line or best_hline
+        line_method = "Linie-V" if best_line else ("Linie-H" if best_hline else None)
+
+        # --- Methode 3: Geknickte Fuehrungslinie (Pfad-Endpunkt) ---
+        # Wenn noch kein Leitungsendpunkt gefunden: schwarze Pfade pruefen,
+        # deren Punkte nahe dem Label liegen — dann den am weitesten entfernten
+        # Punkt als Anlage-Position nehmen.
+        if not line_endpoint:
+            best_far_dist = 0.0
+            for pts in line_paths:
+                # Mindestens ein Punkt muss in der Naehe des Labels liegen
+                near_label = any(
+                    abs(px - cx) < TOLERANZ_LINIE * 3 and abs(py - cy) < 60
+                    for px, py in pts
+                )
+                if not near_label:
+                    continue
+                # Den am weitesten entfernten Punkt als Anlagenpunkt nehmen
+                for px, py in pts:
+                    d = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+                    if d > best_far_dist:
+                        best_far_dist = d
+                        line_endpoint = (px, py)
+                        line_method = "Linie-Pfad"
+
+        # --- Methode 4: Symbol direkt am Leitungsendpunkt (30pt Radius) ---
+        if line_endpoint:
+            ex, ey = line_endpoint
+            best_sym_dist = 30.0
+            best_sym_at_line: tuple | None = None
+            # Farb-Symbole bevorzugen (hoehere Praezision)
+            for sx, sy in color_symbols:
+                d = ((sx - ex) ** 2 + (sy - ey) ** 2) ** 0.5
+                if d < best_sym_dist:
+                    best_sym_dist = d
+                    best_sym_at_line = (sx, sy)
+            for sx, sy in symbol_centers:
+                d = ((sx - ex) ** 2 + (sy - ey) ** 2) ** 0.5
+                if d < best_sym_dist:
+                    best_sym_dist = d
+                    best_sym_at_line = (sx, sy)
+            if best_sym_at_line:
+                return best_sym_at_line, "Symbol-an-Linie"
+            # Kein Symbol am Ende: Leitungsendpunkt selbst zurueckgeben
+            return line_endpoint, line_method
+
+        # --- Methode 5a: Gefuelltes Symbol in 150pt Radius ---
         best_dist = 150.0
         best_sym = None
         for sx, sy in symbol_centers:
@@ -250,7 +335,7 @@ def extract_grundriss_aks(
         if best_sym:
             return best_sym, "Symbol-gefuellt"
 
-        # Methode 4: Bauteil-Farb-Symbol in 200pt Radius
+        # --- Methode 5b: Bauteil-Farb-Symbol in 200pt Radius ---
         best_dist = 200.0
         best_col = None
         for sx, sy in color_symbols:
