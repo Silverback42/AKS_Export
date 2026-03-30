@@ -69,6 +69,7 @@ def build_registry(
             "beschreibung": entry.get("beschreibung"),
             "pdf_x": entry.get("pdf_x"),
             "pdf_y": entry.get("pdf_y"),
+            "pos_method": entry.get("pos_method"),
             "depth": entry.get("depth", len(parts)),
             "schema_children": child_aks,
             "schema_pages": child_pages,
@@ -80,16 +81,25 @@ def build_registry(
     if on_progress:
         on_progress(50, "Resolve Querverweise...")
 
-    # Querverweise aufloesen
+    # Querverweise aufloesen (Anpassung-Eintraege werden nicht als Regelschema-Refs benoetigt)
     cross_refs = []
     for ref in grundriss_data.get("cross_references", []):
+        if ref.get("type") == "anpassung":
+            continue
+
         anlage = ref.get("anlage")
+        # Querverweis-Text mit Anlage-Code anreichern (standalone hat Code separat)
+        text = ref.get("text", "")
+        if anlage and anlage not in text and anlage != "UNRESOLVED":
+            text = f"{text} {anlage}".strip()
+
         resolved = {
-            "text": ref.get("text"),
+            "text": text,
             "type": ref.get("type"),
             "anlage": anlage,
             "pdf_x": ref.get("pdf_x"),
             "pdf_y": ref.get("pdf_y"),
+            "pos_method": ref.get("pos_method"),
         }
 
         if anlage and anlage in schema_data.get("anlagen", {}):
@@ -134,8 +144,10 @@ def build_registry(
                 "geraet_type": classify_geraet(
                     schema_entry.get("geraet", ""), DEFAULT_GERAET_TYPE_MAP
                 ),
+                "beschreibung": schema_entry.get("beschreibung"),
                 "pdf_x": ref.get("pdf_x"),
                 "pdf_y": ref.get("pdf_y"),
+                "pos_method": ref.get("pos_method"),
                 "depth": 6,
                 "schema_children": [],
                 "schema_pages": (

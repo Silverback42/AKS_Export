@@ -79,6 +79,11 @@ def extract_grundriss_aks(
     if on_progress:
         on_progress(10, "Lese Text-Spans und Symbole...")
 
+    compiled_regex = re.compile(aks_regex)
+    # Projekt-Code aus Regex extrahieren fuer Normalisierung
+    project_code_match = re.match(r"^(\w+?)(?:\[|_)", aks_regex)
+    project_code = project_code_match.group(1) if project_code_match else None
+
     blocks = page.get_text("dict")["blocks"]
     all_spans = []
     for block in blocks:
@@ -96,9 +101,18 @@ def extract_grundriss_aks(
             if not text:
                 continue
             bbox = line["bbox"]
-            # Beschreibung = andere Zeilen im selben Block (ohne AKS-String selbst)
-            other_lines = [other_line for other_line in block_lines if other_line != text]
-            block_description = " ".join(other_lines) if other_lines else None
+            # Beschreibung = andere Zeilen im selben Block, ohne AKS-Strings und ohne Duplikate
+            seen_desc: set[str] = set()
+            desc_lines = []
+            for other_line in block_lines:
+                if other_line == text:
+                    continue
+                if compiled_regex.search(other_line):
+                    continue  # AKS-Zeilen nicht als Beschreibung uebernehmen
+                if other_line not in seen_desc:
+                    seen_desc.add(other_line)
+                    desc_lines.append(other_line)
+            block_description = " ".join(desc_lines) if desc_lines else None
             all_spans.append({
                 "text": text,
                 "x": bbox[0], "y": bbox[1],
@@ -186,13 +200,11 @@ def extract_grundriss_aks(
             logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
             continue
 
-    def _find_equipment_pos(cx: float, cy: float):
+    def _find_equipment_pos(cx: float, cy: float) -> tuple[tuple | None, str]:
         """Ermittelt Equipment-Position fuer eine AKS-Textbox (4 Methoden).
 
-        1. Vertikale Verbindungslinie (Linie nach oben/unten vom Label)
-        2. Horizontale Verbindungslinie (Linie nach links/rechts)
-        3. Naechstes gefuelltes Vektor-Symbol in 150pt
-        4. Naechstes Bauteil-Farb-Symbol in 200pt
+        Returns:
+            (pos, method) — pos ist (x, y) oder None, method beschreibt die Erkennungsquelle
         """
         TOLERANZ_LINIE = 12.0  # pt — x-Abstand zum Label-Mittelpunkt
 
@@ -207,7 +219,7 @@ def extract_grundriss_aks(
                 best_dx = dx
                 best_line = (lx, ly_top)
         if best_line:
-            return best_line
+            return best_line, "Linie-V"
 
         # Methode 2: Horizontale Linie — Linie mit kleinstem |y_line - cy|
         best_dy = TOLERANZ_LINIE
@@ -225,7 +237,7 @@ def extract_grundriss_aks(
                     best_dy = dy
                     best_hline = (lx_r, ly)
         if best_hline:
-            return best_hline
+            return best_hline, "Linie-H"
 
         # Methode 3: Gefuelltes Symbol in 150pt Radius
         best_dist = 150.0
@@ -236,7 +248,7 @@ def extract_grundriss_aks(
                 best_dist = d
                 best_sym = (sx, sy)
         if best_sym:
-            return best_sym
+            return best_sym, "Symbol-gefuellt"
 
         # Methode 4: Bauteil-Farb-Symbol in 200pt Radius
         best_dist = 200.0
@@ -246,16 +258,14 @@ def extract_grundriss_aks(
             if d < best_dist:
                 best_dist = d
                 best_col = (sx, sy)
-        return best_col  # None wenn nichts gefunden -> Fallback auf Textbox-Mitte
+        if best_col:
+            return best_col, "Symbol-Farbe"
+
+        return None, "Fallback-Text"
 
     if on_progress:
         on_progress(30, f"{len(all_spans)} Spans, {len(vert_lines)} senkr./"
                     f"{len(horiz_lines)} waagr. Linien, {len(symbol_centers)} Symbole...")
-
-    compiled_regex = re.compile(aks_regex)
-    # Projekt-Code aus Regex extrahieren fuer Normalisierung
-    project_code_match = re.match(r"^(\w+?)(?:\[|_)", aks_regex)
-    project_code = project_code_match.group(1) if project_code_match else None
 
     aks_entries = []
     cross_references = []
@@ -278,12 +288,13 @@ def extract_grundriss_aks(
 
             parts = aks_str.split("_")
             # Bauteil-Symbol suchen; Fallback: Textbox-Mitte
-            sym = _find_equipment_pos(span["cx"], span["cy"])
+            sym, pos_method = _find_equipment_pos(span["cx"], span["cy"])
             entry = {
                 "aks": aks_str,
                 "beschreibung": span.get("block_description"),
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
                 "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "pos_method": pos_method,
                 "label_x": round(span["cx"], 1),
                 "label_y": round(span["cy"], 1),
                 "bbox": [round(span["x"], 1), round(span["y"], 1),
@@ -313,11 +324,12 @@ def extract_grundriss_aks(
             continue
 
         if "Siehe Regelschema" in text:
-            sym = _find_equipment_pos(span["cx"], span["cy"])
+            sym, pos_method = _find_equipment_pos(span["cx"], span["cy"])
             ref = {
                 "text": text,
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
                 "pdf_y": round(sym[1] if sym else span["cy"], 1),
+                "pos_method": pos_method,
                 "label_x": round(span["cx"], 1),
                 "label_y": round(span["cy"], 1),
             }
@@ -351,12 +363,13 @@ def extract_grundriss_aks(
         for span in all_spans:
             dy = span["y"] - ref["label_y"]
             dx = abs(span["cx"] - ref["label_x"])
-            # Gleiche Zeile rechts vom Label (dx > 10 damit nicht der Label selbst) oder direkt darunter
-            same_line_right = abs(dy) < 15 and span["cx"] > ref["label_x"] + 10
+            # Gleiche Zeile, nah am Label (max 120pt Abstand) — weit entfernte Spans ignorieren
+            same_line_near = abs(dy) < 15 and 10 < dx < 120
+            # Direkt unterhalb des Labels (enge Toleranz)
             below_label = 0 < dy < 35 and dx < 80
-            if same_line_right or below_label:
+            if same_line_near or below_label:
                 candidates.append(span)
-        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), s["cx"]))
+        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), abs(s["cx"] - ref["label_x"])))
 
         for cand in candidates:
             anlage_match = re.match(r"^(\w{2,}\d{2,})$", cand["text"])
