@@ -200,31 +200,55 @@ def extract_schema_aks(
         matches = compiled_regex.findall(text)
         unique_matches = list(dict.fromkeys(matches))
 
-        # Beschreibungs-Index aufbauen: AKS -> Text links davon in derselben Zeile
-        beschreibung_by_aks: dict[str, str] = {}
-        blocks = page.get_text("dict")["blocks"]
-        for block in blocks:
+        # Beschreibungs-Index aufbauen: AKS-Strings sind vertikal gedreht.
+        # Die Betriebsmittel-Beschreibung (z.B. "Rueckspuelfilter") steht links-unterhalb
+        # des AKS-Strings — d.h. die rechte Kante (x2) des Textes liegt knapp links
+        # der linken Kante (x) des AKS (<= aks_x + 2pt) und beginnt nicht weiter als
+        # ~15pt links davon (x2 >= aks_x - 15pt).
+        # Funktionscode-Beschreibungen (z.B. "Ein/Aus", "Stoerung") stehen direkt
+        # unterhalb des jeweiligen AKS bei fast gleichem x — diese werden ignoriert.
+        # Der Index wird auf Betriebsmittel-Ebene (6-teiliger AKS-Prefix) aufgebaut
+        # und dann auf alle Funktionscode-Varianten uebertragen.
+        beschreibung_by_geraet: dict[str, str] = {}  # key: 6-part base AKS
+        all_page_items = []
+        for block in page.get_text("dict")["blocks"]:
             if "lines" not in block:
                 continue
             for line in block["lines"]:
-                line_spans = []
-                for span in line["spans"]:
-                    t = span["text"].strip()
-                    if t:
-                        line_spans.append({"text": t, "x": span["bbox"][0], "x2": span["bbox"][2]})
-                # AKS-Span in dieser Zeile suchen
-                for span in line_spans:
-                    aks_m = compiled_regex.search(span["text"])
-                    if not aks_m:
-                        continue
-                    aks_found = aks_m.group(0)
-                    # Text links vom AKS-Span sammeln (kleineres x, gleiche Zeile)
-                    left_texts = [
-                        s["text"] for s in line_spans
-                        if s["x2"] <= span["x"] + 5 and not compiled_regex.search(s["text"])
-                    ]
-                    if left_texts:
-                        beschreibung_by_aks[aks_found] = " ".join(left_texts)
+                t = "".join(span["text"] for span in line["spans"]).strip()
+                if t:
+                    bbox = line["bbox"]
+                    all_page_items.append({
+                        "text": t,
+                        "x": bbox[0], "y": bbox[1],
+                        "x2": bbox[2], "y2": bbox[3],
+                    })
+
+        for item in all_page_items:
+            aks_m = compiled_regex.search(item["text"])
+            if not aks_m:
+                continue
+            aks_found = aks_m.group(0)
+            # Betriebsmittel-Key: erste 6 Teile des AKS (ohne Funktionscode)
+            base_key = "_".join(aks_found.split("_")[:6])
+            if base_key in beschreibung_by_geraet:
+                continue
+            # Kandidaten: Text endet knapp links des AKS (x2 zwischen aks_x-15 und aks_x+2)
+            # und liegt unterhalb des AKS (y >= aks_y2 - 5).
+            # Dadurch werden Funktionscode-Beschreibungen (x ~ aks_x) ausgeschlossen.
+            aks_x = item["x"]
+            aks_y2 = item["y2"]
+            candidates = [
+                n for n in all_page_items
+                if n["y"] >= aks_y2 - 5
+                and (aks_x - 15) <= n["x2"] <= aks_x + 2
+                and not compiled_regex.search(n["text"])
+                and len(n["text"]) > 3
+                and not re.match(r"^\d+$", n["text"])
+            ]
+            candidates.sort(key=lambda n: n["y"])
+            if candidates:
+                beschreibung_by_geraet[base_key] = candidates[0]["text"]
 
         if title["anlage_code"] and title["anlage_code"] not in anlagen:
             anlagen[title["anlage_code"]] = {
@@ -257,7 +281,9 @@ def extract_schema_aks(
                 parsed["source_page"] = i + 1
                 parsed["page_type"] = page_type
                 parsed["anlage_ref"] = title["anlage_code"]
-                parsed["beschreibung"] = beschreibung_by_aks.get(aks_str)
+                # Beschreibung auf Betriebsmittel-Ebene nachschlagen (6-teiliger Prefix)
+                base_key = "_".join(aks_str.split("_")[:6])
+                parsed["beschreibung"] = beschreibung_by_geraet.get(base_key)
                 all_aks.append(parsed)
 
     doc.close()
