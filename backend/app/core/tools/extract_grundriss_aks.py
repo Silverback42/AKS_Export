@@ -363,12 +363,13 @@ def extract_grundriss_aks(
         for span in all_spans:
             dy = span["y"] - ref["label_y"]
             dx = abs(span["cx"] - ref["label_x"])
-            # Gleiche Zeile rechts vom Label (dx > 10 damit nicht der Label selbst) oder direkt darunter
-            same_line_right = abs(dy) < 15 and span["cx"] > ref["label_x"] + 10
+            # Gleiche Zeile, nah am Label (max 120pt Abstand) — weit entfernte Spans ignorieren
+            same_line_near = abs(dy) < 15 and 10 < dx < 120
+            # Direkt unterhalb des Labels (enge Toleranz)
             below_label = 0 < dy < 35 and dx < 80
-            if same_line_right or below_label:
+            if same_line_near or below_label:
                 candidates.append(span)
-        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), s["cx"]))
+        candidates.sort(key=lambda s: (abs(s["y"] - ref["label_y"]), abs(s["cx"] - ref["label_x"])))
 
         for cand in candidates:
             anlage_match = re.match(r"^(\w{2,}\d{2,})$", cand["text"])
