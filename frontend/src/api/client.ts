@@ -110,6 +110,11 @@ export async function exportAksRegistry(projectId: string): Promise<Task> {
   return res.data
 }
 
+export async function exportAksOverlay(projectId: string): Promise<Task> {
+  const res = await api.post<Task>(`/projects/${projectId}/export/aks-overlay`)
+  return res.data
+}
+
 export function getExportDownloadUrl(projectId: string, taskId: string): string {
   return `/api/projects/${projectId}/export/${taskId}/download`
 }

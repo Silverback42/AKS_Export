@@ -200,31 +200,43 @@ def extract_schema_aks(
         matches = compiled_regex.findall(text)
         unique_matches = list(dict.fromkeys(matches))
 
-        # Beschreibungs-Index aufbauen: AKS -> Text links davon in derselben Zeile
+        # Beschreibungs-Index aufbauen: AKS-Strings sind vertikal gedreht,
+        # Beschreibung steht unterhalb des AKS-Strings mit aehnlichem x-Wert.
+        # Ausschluss: kurze Texte (<= 3 Zeichen), rein numerische Texte, AKS-Strings.
         beschreibung_by_aks: dict[str, str] = {}
-        blocks = page.get_text("dict")["blocks"]
-        for block in blocks:
+        all_page_items = []
+        for block in page.get_text("dict")["blocks"]:
             if "lines" not in block:
                 continue
             for line in block["lines"]:
-                line_spans = []
-                for span in line["spans"]:
-                    t = span["text"].strip()
-                    if t:
-                        line_spans.append({"text": t, "x": span["bbox"][0], "x2": span["bbox"][2]})
-                # AKS-Span in dieser Zeile suchen
-                for span in line_spans:
-                    aks_m = compiled_regex.search(span["text"])
-                    if not aks_m:
-                        continue
-                    aks_found = aks_m.group(0)
-                    # Text links vom AKS-Span sammeln (kleineres x, gleiche Zeile)
-                    left_texts = [
-                        s["text"] for s in line_spans
-                        if s["x2"] <= span["x"] + 5 and not compiled_regex.search(s["text"])
-                    ]
-                    if left_texts:
-                        beschreibung_by_aks[aks_found] = " ".join(left_texts)
+                t = "".join(span["text"] for span in line["spans"]).strip()
+                if t:
+                    bbox = line["bbox"]
+                    all_page_items.append({
+                        "text": t,
+                        "x": bbox[0], "y": bbox[1],
+                        "x2": bbox[2], "y2": bbox[3],
+                    })
+
+        for item in all_page_items:
+            aks_m = compiled_regex.search(item["text"])
+            if not aks_m:
+                continue
+            aks_found = aks_m.group(0)
+            if aks_found in beschreibung_by_aks:
+                continue
+            # Kandidaten: unterhalb des AKS (y_top > aks_y2), aehnlicher x-Bereich (|x - aks_x| < 20pt)
+            candidates = [
+                n for n in all_page_items
+                if n["y"] > item["y2"] - 5
+                and abs(n["x"] - item["x"]) < 20
+                and not compiled_regex.search(n["text"])
+                and len(n["text"]) > 3
+                and not re.match(r"^\d+$", n["text"])
+            ]
+            candidates.sort(key=lambda n: n["y"])
+            if candidates:
+                beschreibung_by_aks[aks_found] = candidates[0]["text"]
 
         if title["anlage_code"] and title["anlage_code"] not in anlagen:
             anlagen[title["anlage_code"]] = {

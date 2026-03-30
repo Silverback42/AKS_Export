@@ -22,6 +22,7 @@ import {
   runExtraction,
   getRegistry,
   exportAksRegistry,
+  exportAksOverlay,
   getExportDownloadUrl,
 } from "@/api/client"
 import { useTaskPolling } from "@/hooks/useTaskPolling"
@@ -86,6 +87,7 @@ export function ExtractionPage() {
 
   const [extractionTaskId, setExtractionTaskId] = useState<string | null>(null)
   const [exportTaskId, setExportTaskId] = useState<string | null>(null)
+  const [overlayTaskId, setOverlayTaskId] = useState<string | null>(null)
   const [fileTypeOverride, setFileTypeOverride] = useState<string | null>(null)
 
   // Projekt laden
@@ -106,6 +108,7 @@ export function ExtractionPage() {
   // Task Polling
   const extractionTask = useTaskPolling(extractionTaskId)
   const exportTask = useTaskPolling(exportTaskId)
+  const overlayTask = useTaskPolling(overlayTaskId)
 
   // Registry nach erfolgreicher Extraktion neu laden
   if (extractionTask?.status === "completed") {
@@ -181,6 +184,19 @@ export function ExtractionPage() {
     }
   }
 
+  const startOverlayExport = async () => {
+    try {
+      const task = await exportAksOverlay(projectId!)
+      setOverlayTaskId(task.id)
+      toast.success("Overlay-Export gestartet")
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        (err instanceof Error ? err.message : undefined)
+      toast.error(msg ?? "Fehler beim Starten des Overlay-Exports")
+    }
+  }
+
   // Hilfsfunktionen
   const pdfUploads = project?.uploads.filter(
     (u) => u.file_type === "schema_pdf" || u.file_type === "grundriss_pdf"
@@ -190,10 +206,16 @@ export function ExtractionPage() {
 
   const isExtractionBusy = extractionTask?.status === "running" || extractionTask?.status === "pending"
   const isExportBusy = exportTask?.status === "running" || exportTask?.status === "pending"
+  const isOverlayBusy = overlayTask?.status === "running" || overlayTask?.status === "pending"
+  const hasGrundriss = (project?.uploads.filter((u) => u.file_type === "grundriss_pdf").length ?? 0) > 0
   const canStartExtraction = pdfUploads.length > 0 && !isExtractionBusy
   const canExport =
     (extractionTask?.status === "completed" || registry !== undefined) &&
     !isExportBusy
+  const canOverlay =
+    (extractionTask?.status === "completed" || registry !== undefined) &&
+    hasGrundriss &&
+    !isOverlayBusy
 
   if (isLoading) return <p className="text-muted-foreground">Laden...</p>
   if (!project) return <p className="text-destructive">Projekt nicht gefunden</p>
@@ -372,7 +394,7 @@ export function ExtractionPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={startExport} disabled={!canExport}>
                 <Download className="mr-2 h-4 w-4" />
                 AKS-Excel exportieren
@@ -382,6 +404,18 @@ export function ExtractionPage() {
                   <a href={getExportDownloadUrl(projectId!, exportTask.id)} download>
                     <Download className="mr-2 h-4 w-4" />
                     Excel herunterladen
+                  </a>
+                </Button>
+              )}
+              <Button variant="outline" onClick={startOverlayExport} disabled={!canOverlay}>
+                <Download className="mr-2 h-4 w-4" />
+                AKS-Overlay (PDF)
+              </Button>
+              {overlayTask?.status === "completed" && overlayTask.id && (
+                <Button variant="outline" asChild>
+                  <a href={getExportDownloadUrl(projectId!, overlayTask.id)} download>
+                    <Download className="mr-2 h-4 w-4" />
+                    Overlay herunterladen
                   </a>
                 </Button>
               )}
@@ -397,6 +431,19 @@ export function ExtractionPage() {
                 </div>
                 {exportTask.status === "running" && (
                   <Progress value={exportTask.progress} className="mt-2" />
+                )}
+              </div>
+            )}
+            {overlayTask && overlayTask.status !== "completed" && (
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <TaskStatusBadge task={overlayTask} />
+                  <span className="text-sm text-muted-foreground">
+                    {overlayTask.message}
+                  </span>
+                </div>
+                {overlayTask.status === "running" && (
+                  <Progress value={overlayTask.progress} className="mt-2" />
                 )}
               </div>
             )}
