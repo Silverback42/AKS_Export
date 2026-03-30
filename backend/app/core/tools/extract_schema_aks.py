@@ -200,10 +200,16 @@ def extract_schema_aks(
         matches = compiled_regex.findall(text)
         unique_matches = list(dict.fromkeys(matches))
 
-        # Beschreibungs-Index aufbauen: AKS-Strings sind vertikal gedreht,
-        # Beschreibung steht unterhalb des AKS-Strings mit aehnlichem x-Wert.
-        # Ausschluss: kurze Texte (<= 3 Zeichen), rein numerische Texte, AKS-Strings.
-        beschreibung_by_aks: dict[str, str] = {}
+        # Beschreibungs-Index aufbauen: AKS-Strings sind vertikal gedreht.
+        # Die Betriebsmittel-Beschreibung (z.B. "Rueckspuelfilter") steht links-unterhalb
+        # des AKS-Strings — d.h. die rechte Kante (x2) des Textes liegt knapp links
+        # der linken Kante (x) des AKS (<= aks_x + 2pt) und beginnt nicht weiter als
+        # ~15pt links davon (x2 >= aks_x - 15pt).
+        # Funktionscode-Beschreibungen (z.B. "Ein/Aus", "Stoerung") stehen direkt
+        # unterhalb des jeweiligen AKS bei fast gleichem x — diese werden ignoriert.
+        # Der Index wird auf Betriebsmittel-Ebene (6-teiliger AKS-Prefix) aufgebaut
+        # und dann auf alle Funktionscode-Varianten uebertragen.
+        beschreibung_by_geraet: dict[str, str] = {}  # key: 6-part base AKS
         all_page_items = []
         for block in page.get_text("dict")["blocks"]:
             if "lines" not in block:
@@ -223,20 +229,26 @@ def extract_schema_aks(
             if not aks_m:
                 continue
             aks_found = aks_m.group(0)
-            if aks_found in beschreibung_by_aks:
+            # Betriebsmittel-Key: erste 6 Teile des AKS (ohne Funktionscode)
+            base_key = "_".join(aks_found.split("_")[:6])
+            if base_key in beschreibung_by_geraet:
                 continue
-            # Kandidaten: unterhalb des AKS (y_top > aks_y2), aehnlicher x-Bereich (|x - aks_x| < 20pt)
+            # Kandidaten: Text endet knapp links des AKS (x2 zwischen aks_x-15 und aks_x+2)
+            # und liegt unterhalb des AKS (y >= aks_y2 - 5).
+            # Dadurch werden Funktionscode-Beschreibungen (x ~ aks_x) ausgeschlossen.
+            aks_x = item["x"]
+            aks_y2 = item["y2"]
             candidates = [
                 n for n in all_page_items
-                if n["y"] > item["y2"] - 5
-                and abs(n["x"] - item["x"]) < 20
+                if n["y"] >= aks_y2 - 5
+                and (aks_x - 15) <= n["x2"] <= aks_x + 2
                 and not compiled_regex.search(n["text"])
                 and len(n["text"]) > 3
                 and not re.match(r"^\d+$", n["text"])
             ]
             candidates.sort(key=lambda n: n["y"])
             if candidates:
-                beschreibung_by_aks[aks_found] = candidates[0]["text"]
+                beschreibung_by_geraet[base_key] = candidates[0]["text"]
 
         if title["anlage_code"] and title["anlage_code"] not in anlagen:
             anlagen[title["anlage_code"]] = {
@@ -269,7 +281,9 @@ def extract_schema_aks(
                 parsed["source_page"] = i + 1
                 parsed["page_type"] = page_type
                 parsed["anlage_ref"] = title["anlage_code"]
-                parsed["beschreibung"] = beschreibung_by_aks.get(aks_str)
+                # Beschreibung auf Betriebsmittel-Ebene nachschlagen (6-teiliger Prefix)
+                base_key = "_".join(aks_str.split("_")[:6])
+                parsed["beschreibung"] = beschreibung_by_geraet.get(base_key)
                 all_aks.append(parsed)
 
     doc.close()
