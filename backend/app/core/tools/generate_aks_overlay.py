@@ -3,14 +3,11 @@
 Das Overlay kann in einem PDF-Viewer ueber den Grundrissplan gelegt werden.
 Jeder AKS-Eintrag wird als farbiger Punkt + Kurztext an den ermittelten Koordinaten eingezeichnet.
 Farbe zeigt die Erkennungsmethode:
-  Linie-V         -> Blau
-  Linie-H         -> Cyan
-  Linie-Pfad      -> Hellblau (geknickte Fuehrungslinie, Pfad-Endpunkt)
-  Symbol-an-Linie -> Dunkelgruen (Symbol direkt am Leitungsendpunkt)
-  Symbol-gefuellt -> Gruen
-  Symbol-Farbe    -> Orange
-  Fallback-Text   -> Rot
-  Schema (cross)  -> Lila
+  Symbol-an-Linie -> Gruen (Farbgruppen-Center am Fuehrungslinien-Endpunkt)
+  Symbol          -> Hellgruen (naechste farbige Komponente ohne Fuehrungslinie)
+  Linie           -> Blau (Fuehrungslinien-Endpunkt, keine farbige Komponente gefunden)
+  Fallback-Text   -> Rot (weder Fuehrungslinie noch Komponente gefunden)
+  Schema (cross)  -> Lila (aus Schema-PDF, keine Grundrisskoordinaten)
 """
 
 from pathlib import Path
@@ -20,12 +17,9 @@ import fitz
 
 # Farben nach Erkennungsmethode (RGB 0-1)
 METHOD_COLORS = {
-    "Linie-V":          (0.0, 0.4, 0.9),
-    "Linie-H":          (0.0, 0.8, 0.9),
-    "Linie-Pfad":       (0.4, 0.7, 1.0),
-    "Symbol-an-Linie":  (0.0, 0.5, 0.1),
-    "Symbol-gefuellt":  (0.0, 0.7, 0.2),
-    "Symbol-Farbe":     (1.0, 0.5, 0.0),
+    "Symbol-an-Linie":  (0.0, 0.6, 0.1),
+    "Symbol":           (0.4, 0.8, 0.2),
+    "Linie":            (0.0, 0.4, 0.9),
     "Fallback-Text":    (0.9, 0.0, 0.0),
     "Schema":           (0.6, 0.0, 0.9),
 }

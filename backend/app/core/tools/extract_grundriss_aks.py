@@ -122,235 +122,197 @@ def extract_grundriss_aks(
                 "block_description": block_description,
             })
 
-    # Bauteil-Position ermitteln — 4-stufige Methode:
-    # 1. Vertikale Verbindungslinie (AKS-Label horizontal, Linie geht nach oben/unten)
-    # 2. Horizontale Verbindungslinie (AKS-Label vertikal, Linie geht nach links/rechts)
-    # 3. Gefuelltes Vektor-Symbol in der Naehe der Textbox
-    # 4. Farb-basiertes Symbol (Leuchte=pink, Lueftung=gelb, Jalousie=teal, Elektro=schwarz)
+    # Bauteil-Position ermitteln:
+    # 1. Fuehrungslinie (schwarz, ungefuellt) vom Label zur Komponente finden
+    # 2. Am Endpunkt der Linie: farbig gefuellte Komponente suchen (Farbgruppen-Center)
+    # 3. Fallback: naechste farbige Komponente zum Label
 
-    # Bekannte Bauteil-Farben (RGB, Toleranz 0.1):
-    # Leuchten: pink/magenta (1, 0, 1) oder aehnlich
-    # Lueftung: gelb (1, 1, 0)
-    # Jalousie: teal (0, 0.5, 0.5) ca.
-    # Elektro: schwarz (0, 0, 0)
-    BAUTEIL_FARBEN = [
-        (1.0, 0.0, 1.0),    # Leuchte — magenta/pink
-        (1.0, 0.0, 0.5),    # Leuchte — variante
-        (1.0, 1.0, 0.0),    # Lueftung — gelb
-        (0.0, 0.5, 0.5),    # Jalousie — teal
-        (0.0, 0.6, 0.6),    # Jalousie — variante
-        (0.0, 0.0, 0.0),    # Elektro — schwarz
-    ]
-
-    def _color_is_bauteil(color) -> bool:
-        if not color:
-            return False
-        for fc in BAUTEIL_FARBEN:
-            if all(abs(color[i] - fc[i]) < 0.15 for i in range(3)):
-                return True
-        return False
-
-    # Verbindungslinien sammeln: aus den Pfad-Segmenten (items) statt der Bounding-Box.
-    # Jede Drawing kann mehrere "l"-Segmente enthalten (z.B. bei geknickten Fuehrungslinien).
-    # vert_lines: (x_mid, y_top, y_bot, p0_y, p1_y) — senkrechte Segmente
-    # horiz_lines: (x_left, x_right, y_mid)         — waagrechte Segmente
-    # line_paths: Alle schwarzen Pfad-Drawings mit ihren Endpunkten fuer Knick-Erkennung
-    #             [(pt_x, pt_y), ...] — alle Punkte des Pfades
-    vert_lines = []
-    horiz_lines = []
-    line_paths = []   # [(x, y), ...]  — alle Eckpunkte jeder schwarzen Fuehrungslinie
-    # Gefuellte Symbole (Groesse 3-80pt)
-    symbol_centers = []   # (cx, cy)
-    # Farb-Symbole als Fallback
-    color_symbols = []    # (cx, cy)
+    # -- Schwarze Liniensegmente sammeln (aus items[] statt Bbox) --
+    # Jedes Segment als (x0, y0, x1, y1) mit tatsaechlichen Pfad-Endpunkten
+    black_segs: list[tuple[float, float, float, float]] = []
+    # -- Farbig gefuellte Komponenten sammeln (non-gray, Flaeche > 1x1 pt) --
+    # (center_x, center_y, x0, y0, x1, y1, fill_tuple)
+    colored_comps: list[tuple[float, float, float, float, float, float, tuple]] = []
 
     for drawing in page.get_drawings():
         try:
-            r = drawing["rect"]
-            w = r.x1 - r.x0
-            h = r.y1 - r.y0
             color = drawing.get("color")
             fill = drawing.get("fill")
-            is_black = color == (0.0, 0.0, 0.0) and fill is None
+            is_black = (
+                color is not None
+                and abs(color[0]) < 0.01 and abs(color[1]) < 0.01 and abs(color[2]) < 0.01
+                and fill is None
+            )
 
-            # Fuehrungslinien: schwarz, ungefuellt, Bounding-Box-Diagonale > 30pt
-            # Einzelne Segmente aus items[] auswerten statt nur die Gesamt-Bbox.
             if is_black:
-                diag = (w ** 2 + h ** 2) ** 0.5
-                if diag > 30:
-                    # Alle Endpunkte dieser Drawing sammeln (fuer Knick-Pfade)
-                    path_pts: list[tuple[float, float]] = []
-                    for seg in drawing.get("items", []):
-                        if seg[0] == "l":
-                            p0, p1 = seg[1], seg[2]
-                            path_pts.append((p0.x, p0.y))
-                            path_pts.append((p1.x, p1.y))
+                for seg in drawing.get("items", []):
+                    if seg[0] != "l":
+                        continue
+                    p0, p1 = seg[1], seg[2]
+                    seg_len = ((p1.x - p0.x) ** 2 + (p1.y - p0.y) ** 2) ** 0.5
+                    if seg_len > 8:
+                        black_segs.append((p0.x, p0.y, p1.x, p1.y))
 
-                            dx_seg = abs(p1.x - p0.x)
-                            dy_seg = abs(p1.y - p0.y)
-
-                            # Senkrechtes Segment: Δx < 3pt, Δy > 30pt
-                            if dx_seg < 3 and dy_seg > 30:
-                                x_mid = (p0.x + p1.x) / 2
-                                vert_lines.append((
-                                    x_mid,
-                                    min(p0.y, p1.y),   # y_top
-                                    max(p0.y, p1.y),   # y_bot
-                                    p0.y,              # Rohpunkt A
-                                    p1.y,              # Rohpunkt B
-                                ))
-
-                            # Waagrechtes Segment: Δy < 3pt, Δx > 30pt
-                            elif dy_seg < 3 and dx_seg > 30:
-                                y_mid = (p0.y + p1.y) / 2
-                                horiz_lines.append((
-                                    min(p0.x, p1.x),
-                                    max(p0.x, p1.x),
-                                    y_mid,
-                                ))
-
-                    if path_pts:
-                        # Duplikate entfernen und als Pfad speichern
-                        unique_pts = list(dict.fromkeys(path_pts))
-                        line_paths.append(unique_pts)
-
-            # Gefuelltes Vektor-Symbol (nicht schwarz, sinnvolle Groesse)
-            elif fill is not None and 3 < w < 80 and 3 < h < 80:
-                cx_s = (r.x0 + r.x1) / 2
-                cy_s = (r.y0 + r.y1) / 2
-                symbol_centers.append((cx_s, cy_s))
-                # Zusaetzlich als Farb-Symbol merken wenn Bauteil-Farbe
-                if _color_is_bauteil(fill):
-                    color_symbols.append((cx_s, cy_s))
-
-            # Farb-Kontur ohne Fill (stroke only, Bauteil-Farbe)
-            elif fill is None and 3 < w < 80 and 3 < h < 80 and _color_is_bauteil(color):
-                color_symbols.append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+            elif fill is not None:
+                r = drawing["rect"]
+                w = r.x1 - r.x0
+                h = r.y1 - r.y0
+                # Grau ausfiltern (alle 3 Kanaele ~gleich)
+                is_gray = (
+                    abs(fill[0] - fill[1]) < 0.05
+                    and abs(fill[1] - fill[2]) < 0.05
+                )
+                if not is_gray and w > 1 and h > 1:
+                    colored_comps.append((
+                        (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2,
+                        r.x0, r.y0, r.x1, r.y1,
+                        fill,
+                    ))
 
         except Exception as e:
-            logger.warning("Fehler beim Lesen der Zeichnungsdaten aus PDF: %s", e, exc_info=True)
+            logger.warning("Fehler beim Lesen der Zeichnungsdaten: %s", e, exc_info=True)
             continue
 
-    def _find_equipment_pos(cx: float, cy: float) -> tuple[tuple | None, str]:
+    def _color_key(fill_tuple: tuple) -> tuple:
+        """Farb-Schluessel fuer Gruppierung (auf 1 Dezimale gerundet)."""
+        return (round(fill_tuple[0], 1), round(fill_tuple[1], 1), round(fill_tuple[2], 1))
+
+    def _find_component_at(px: float, py: float, radius: float = 60.0) -> tuple | None:
+        """Suche farbige Komponente an einem Punkt.
+
+        Alle farbig gefuellten Elemente innerhalb des Radius werden nach Farbe
+        gruppiert. Pro Gruppe wird die Gesamt-Bounding-Box berechnet und deren
+        Mittelpunkt zurueckgegeben. Die Gruppe mit dem naechsten Mittelpunkt
+        zum Suchpunkt gewinnt.
+
+        Returns:
+            (center_x, center_y, fill) oder None
+        """
+        nearby = [
+            c for c in colored_comps
+            if abs(c[0] - px) < radius and abs(c[1] - py) < radius
+            and ((c[0] - px) ** 2 + (c[1] - py) ** 2) ** 0.5 < radius
+        ]
+        if not nearby:
+            return None
+
+        # Nach Farbe gruppieren, pro Gruppe Gesamt-Bbox-Center berechnen
+        groups: dict[tuple, list] = {}
+        for c in nearby:
+            key = _color_key(c[6])
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(c)
+
+        best_center = None
+        best_dist = radius * 2
+        best_fill = None
+        for _key, comps in groups.items():
+            min_x = min(c[2] for c in comps)
+            min_y = min(c[3] for c in comps)
+            max_x = max(c[4] for c in comps)
+            max_y = max(c[5] for c in comps)
+            gcx = (min_x + max_x) / 2
+            gcy = (min_y + max_y) / 2
+            gd = ((gcx - px) ** 2 + (gcy - py) ** 2) ** 0.5
+            if gd < best_dist:
+                best_dist = gd
+                best_center = (gcx, gcy)
+                best_fill = comps[0][6]
+
+        if best_center:
+            return (*best_center, best_fill)
+        return None
+
+    def _find_equipment_pos(
+        cx: float, cy: float,
+        bx0: float, by0: float, bx1: float, by1: float,
+    ) -> tuple[tuple | None, str]:
         """Ermittelt Equipment-Position fuer eine AKS-Textbox.
 
-        Strategie (5 Methoden in Reihenfolge):
-        1. Linie-V: Senkrechtes Segment nahe Label-x — den vom Label entfernten Endpunkt nehmen
-        2. Linie-H: Waagrechtes Segment nahe Label-y — das vom Label weg zeigende Ende
-        3. Linie-Pfad: Bei geknickten Fuehrungslinien — Endpunkt des gesamten Pfades der
-           am weitesten vom Label entfernt liegt (nicht der Knick-Punkt)
-        4. Symbol-an-Linie: Symbol (Farbe/gefuellt) in 30pt Radius um den Leitungsendpunkt
-        5. Symbol-gefuellt / Symbol-Farbe: naechstes Symbol ohne Leitungshinweis
-        6. Fallback-Text: Label-Mittelpunkt
+        Strategie:
+        1. Fuehrungslinie finden: schwarzes Segment das an der Label-Bbox-Kante
+           startet (innerhalb 10pt). Das andere Ende ist der Leitungsendpunkt.
+        2. Einfache Ketten-Verfolgung ab dem Endpunkt: verbundene schwarze
+           Segmente folgen (max 5 Hops, nur in Richtung weg vom Label).
+        3. Am finalen Endpunkt: farbige Komponente suchen (Farbgruppen-Center
+           innerhalb 60pt Radius).
+        4. Fallback: naechste farbige Komponente zum Label (200pt Radius).
+        5. Letzter Fallback: Leitungsendpunkt oder Label-Mittelpunkt.
+
+        Args:
+            cx, cy: Label-Mittelpunkt
+            bx0, by0, bx1, by1: Label-Bounding-Box
 
         Returns:
             (pos, method) — pos ist (x, y) oder None
         """
-        TOLERANZ_LINIE = 12.0  # pt — maximaler Abstand Label-Mitte zu Linie
+        # --- Schritt 1: Beste Fuehrungslinie finden ---
+        # Schwarzes Segment dessen ein Endpunkt moeglichst nah an der Bbox-Kante
+        # liegt (<10pt) und dessen anderer Endpunkt weiter vom Label-Center ist.
+        best_seg_far = None         # (far_x, far_y)
+        best_d_to_box = 10.0       # Toleranz: max 10pt von Bbox-Kante
+        for sx0, sy0, sx1, sy1 in black_segs:
+            for px, py, fx, fy in [(sx0, sy0, sx1, sy1), (sx1, sy1, sx0, sy0)]:
+                # Abstand von (px,py) zur Bbox-Kante
+                dx_box = max(bx0 - px, px - bx1, 0.0)
+                dy_box = max(by0 - py, py - by1, 0.0)
+                d_box = (dx_box ** 2 + dy_box ** 2) ** 0.5
+                if d_box < best_d_to_box:
+                    # Far-Punkt muss weiter vom Label sein als Near-Punkt
+                    far_d = ((fx - cx) ** 2 + (fy - cy) ** 2) ** 0.5
+                    near_d = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+                    if far_d > near_d:
+                        best_d_to_box = d_box
+                        best_seg_far = (fx, fy)
 
-        # --- Methode 1: Senkrechtes Segment ---
-        # Endpunkt waehlen der am weitesten vom Label-y entfernt liegt (= Anlage)
-        best_dx = TOLERANZ_LINIE
-        best_line: tuple | None = None
-        for lx, ly_top, ly_bot, p0y, p1y in vert_lines:
-            dx = abs(lx - cx)
-            # Segment muss Label ueberspannen oder eindeutig ober-/unterhalb liegen
-            spans = ly_top < cy - 10 or ly_bot > cy + 10 or (ly_top <= cy <= ly_bot)
-            if dx < best_dx and spans:
-                best_dx = dx
-                # Den Endpunkt nehmen der weiter vom Label-Mittelpunkt (cy) entfernt ist
-                far_y = p0y if abs(p0y - cy) >= abs(p1y - cy) else p1y
-                best_line = (lx, far_y)
+        # --- Schritt 2: Ketten-Verfolgung (max 5 Hops, Richtung weg vom Label) ---
+        endpoint = best_seg_far
+        if endpoint:
+            epx, epy = endpoint
+            dist_from_label = ((epx - cx) ** 2 + (epy - cy) ** 2) ** 0.5
+            visited = {(round(epx, 0), round(epy, 0))}
+            for _ in range(5):
+                best_next = None
+                best_conn_d = 10.0  # Max 10pt Verbindungstoleranz
+                for sx0, sy0, sx1, sy1 in black_segs:
+                    for px, py, fx, fy in [(sx0, sy0, sx1, sy1), (sx1, sy1, sx0, sy0)]:
+                        conn_d = ((px - epx) ** 2 + (py - epy) ** 2) ** 0.5
+                        if conn_d >= best_conn_d:
+                            continue
+                        fkey = (round(fx, 0), round(fy, 0))
+                        if fkey in visited:
+                            continue
+                        # Muss weiter vom Label sein (oder min. gleich weit)
+                        next_d = ((fx - cx) ** 2 + (fy - cy) ** 2) ** 0.5
+                        if next_d >= dist_from_label - 5:
+                            best_conn_d = conn_d
+                            best_next = (fx, fy, fkey, next_d)
+                if best_next:
+                    epx, epy = best_next[0], best_next[1]
+                    visited.add(best_next[2])
+                    dist_from_label = best_next[3]
+                    endpoint = (epx, epy)
+                else:
+                    break
 
-        # --- Methode 2: Waagrechtes Segment ---
-        best_dy = TOLERANZ_LINIE
-        best_hline: tuple | None = None
-        for lx_l, lx_r, ly in horiz_lines:
-            dy = abs(ly - cy)
-            if dy < best_dy:
-                # Linie links vom Label: Endpunkt = linkes Ende (zeigt zur Anlage)
-                if lx_r < cx - 10:
-                    best_dy = dy
-                    best_hline = (lx_l, ly)
-                # Linie rechts vom Label: Endpunkt = rechtes Ende
-                elif lx_l > cx + 10:
-                    best_dy = dy
-                    best_hline = (lx_r, ly)
+        # --- Schritt 3: Farbige Komponente am Endpunkt suchen (60pt) ---
+        if endpoint:
+            result = _find_component_at(endpoint[0], endpoint[1], radius=60.0)
+            if result:
+                return (result[0], result[1]), "Symbol-an-Linie"
+            return endpoint, "Linie"
 
-        # Den besten Leitungs-Endpunkt aus Methode 1+2 festlegen
-        line_endpoint: tuple | None = best_line or best_hline
-        line_method = "Linie-V" if best_line else ("Linie-H" if best_hline else None)
-
-        # --- Methode 3: Geknickte Fuehrungslinie (Pfad-Endpunkt) ---
-        # Wenn noch kein Leitungsendpunkt gefunden: schwarze Pfade pruefen,
-        # deren Punkte nahe dem Label liegen — dann den am weitesten entfernten
-        # Punkt als Anlage-Position nehmen.
-        if not line_endpoint:
-            best_far_dist = 0.0
-            for pts in line_paths:
-                # Mindestens ein Punkt muss in der Naehe des Labels liegen
-                near_label = any(
-                    abs(px - cx) < TOLERANZ_LINIE * 3 and abs(py - cy) < 60
-                    for px, py in pts
-                )
-                if not near_label:
-                    continue
-                # Den am weitesten entfernten Punkt als Anlagenpunkt nehmen
-                for px, py in pts:
-                    d = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
-                    if d > best_far_dist:
-                        best_far_dist = d
-                        line_endpoint = (px, py)
-                        line_method = "Linie-Pfad"
-
-        # --- Methode 4: Symbol direkt am Leitungsendpunkt (30pt Radius) ---
-        if line_endpoint:
-            ex, ey = line_endpoint
-            best_sym_dist = 30.0
-            best_sym_at_line: tuple | None = None
-            # Farb-Symbole bevorzugen (hoehere Praezision)
-            for sx, sy in color_symbols:
-                d = ((sx - ex) ** 2 + (sy - ey) ** 2) ** 0.5
-                if d < best_sym_dist:
-                    best_sym_dist = d
-                    best_sym_at_line = (sx, sy)
-            for sx, sy in symbol_centers:
-                d = ((sx - ex) ** 2 + (sy - ey) ** 2) ** 0.5
-                if d < best_sym_dist:
-                    best_sym_dist = d
-                    best_sym_at_line = (sx, sy)
-            if best_sym_at_line:
-                return best_sym_at_line, "Symbol-an-Linie"
-            # Kein Symbol am Ende: Leitungsendpunkt selbst zurueckgeben
-            return line_endpoint, line_method
-
-        # --- Methode 5a: Gefuelltes Symbol in 150pt Radius ---
-        best_dist = 150.0
-        best_sym = None
-        for sx, sy in symbol_centers:
-            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
-            if d < best_dist:
-                best_dist = d
-                best_sym = (sx, sy)
-        if best_sym:
-            return best_sym, "Symbol-gefuellt"
-
-        # --- Methode 5b: Bauteil-Farb-Symbol in 200pt Radius ---
-        best_dist = 200.0
-        best_col = None
-        for sx, sy in color_symbols:
-            d = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
-            if d < best_dist:
-                best_dist = d
-                best_col = (sx, sy)
-        if best_col:
-            return best_col, "Symbol-Farbe"
+        # --- Schritt 4: Fallback — naechste Komponente zum Label (200pt) ---
+        result = _find_component_at(cx, cy, radius=200.0)
+        if result:
+            return (result[0], result[1]), "Symbol"
 
         return None, "Fallback-Text"
 
     if on_progress:
-        on_progress(30, f"{len(all_spans)} Spans, {len(vert_lines)} senkr./"
-                    f"{len(horiz_lines)} waagr. Linien, {len(symbol_centers)} Symbole...")
+        on_progress(30, f"{len(all_spans)} Spans, {len(black_segs)} Linien-Segm./"
+                    f"{len(colored_comps)} farb. Komp...")
 
     aks_entries = []
     cross_references = []
@@ -373,7 +335,10 @@ def extract_grundriss_aks(
 
             parts = aks_str.split("_")
             # Bauteil-Symbol suchen; Fallback: Textbox-Mitte
-            sym, pos_method = _find_equipment_pos(span["cx"], span["cy"])
+            sym, pos_method = _find_equipment_pos(
+                span["cx"], span["cy"],
+                span["x"], span["y"], span["x2"], span["y2"],
+            )
             entry = {
                 "aks": aks_str,
                 "beschreibung": span.get("block_description"),
@@ -409,7 +374,10 @@ def extract_grundriss_aks(
             continue
 
         if "Siehe Regelschema" in text:
-            sym, pos_method = _find_equipment_pos(span["cx"], span["cy"])
+            sym, pos_method = _find_equipment_pos(
+                span["cx"], span["cy"],
+                span["x"], span["y"], span["x2"], span["y2"],
+            )
             ref = {
                 "text": text,
                 "pdf_x": round(sym[0] if sym else span["cx"], 1),
