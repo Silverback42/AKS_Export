@@ -145,10 +145,15 @@ def run_unified_extraction(
 
     on_progress(2, f"{len(schema_pdfs)} Schema-PDFs, {len(grundriss_pdfs)} Grundriss-PDFs gefunden")
 
+    # Normalisierung: Praefix kann bereits einen optionalen [xX]?-Suffix
+    # enthalten (siehe routers/projects.py::_build_aks_regex). Wir entfernen
+    # einen evtl. vorhandenen Suffix, damit wir ihn unten einheitlich anhaengen
+    # und keine doppelte Optional-Gruppe entsteht.
+    aks_regex_base_clean = aks_regex_base.removesuffix("[xX]?")
     # Schema-Regex: erzwingt 5-7 Unterstriche (6-8 Teile)
-    schema_regex = aks_regex_base + r"[xX]?_\w+(?:_\w+){4,6}"
+    schema_regex = aks_regex_base_clean + r"[xX]?_\w+(?:_\w+){4,6}"
     # Grundriss-Regex: flexibler (variable Tiefe)
-    grundriss_regex = aks_regex_base + r"[xX]?_\w+(?:_\w+)*"
+    grundriss_regex = aks_regex_base_clean + r"[xX]?_\w+(?:_\w+)*"
 
     # --- Schema-PDFs extrahieren ---
     merged_schema = {
