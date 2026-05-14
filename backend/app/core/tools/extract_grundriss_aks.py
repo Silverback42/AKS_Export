@@ -29,6 +29,13 @@ def raum_from_code(code: str, room_code_pattern: str, room_format: str) -> str:
         prefix = EBENE_PREFIX.get(ebene_match.group(1), ebene_match.group(1))
         return f"{prefix}.{ebene_match.group(2)}"
 
+    # Aussenanlagen-Pseudo-Raeume aus INF-Plaenen (z.B. AA001, AA002 fuer
+    # Schaechte, Rigolen, Loeschwasser-Hydranten ausserhalb des Gebaeudes).
+    # Format: zwei Buchstaben (nicht EG/KG/OG/DA) + drei Ziffern.
+    aussenanlage_match = re.match(r"^([A-Z]{2})(\d{3})$", code)
+    if aussenanlage_match:
+        return f"Aussenanlage {aussenanlage_match.group(2)}"
+
     # Fallback: Projekt-spezifisches Pattern
     m = re.match(room_code_pattern, code)
     if m:
@@ -80,9 +87,11 @@ def extract_grundriss_aks(
         on_progress(10, "Lese Text-Spans und Symbole...")
 
     compiled_regex = re.compile(aks_regex)
-    # Projekt-Code aus Regex extrahieren fuer Normalisierung
-    project_code_match = re.match(r"^(\w+?)(?:\[|_)", aks_regex)
-    project_code = project_code_match.group(1) if project_code_match else None
+    # Case-Normalisierung wird generisch ueber alle Praefixe vom Format
+    # <3-Buchstaben><3-Ziffern>X gemacht — funktioniert sowohl fuer einen
+    # einzelnen Projektcode (WUN005X -> WUN005x) als auch fuer Regex-Klassen
+    # wie WUN\d{3} (z.B. WUN099X -> WUN099x).
+    _trailing_x_re = re.compile(r"([A-Z]{3}\d{3})X(?=_)")
 
     blocks = page.get_text("dict")["blocks"]
     all_spans = []
@@ -324,14 +333,8 @@ def extract_grundriss_aks(
         aks_match = compiled_regex.search(text)
         if aks_match:
             aks_str = aks_match.group(0)
-            # Normalisierung: z.B. WUN005X -> WUN005x
-            if project_code:
-                aks_str = re.sub(
-                    rf"^{re.escape(project_code)}X",
-                    f"{project_code}x",
-                    aks_str,
-                    flags=re.IGNORECASE,
-                )
+            # Normalisierung: z.B. WUN005X -> WUN005x, WUN099X -> WUN099x
+            aks_str = _trailing_x_re.sub(r"\1x", aks_str)
 
             parts = aks_str.split("_")
             # Bauteil-Symbol suchen; Fallback: Textbox-Mitte

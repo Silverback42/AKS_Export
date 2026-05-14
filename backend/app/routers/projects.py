@@ -22,8 +22,17 @@ from app.core.tools.aks_structure import DEFAULT_GERAET_TYPE_MAP
 
 
 def _build_aks_regex(project_code: str) -> str:
-    """Baut AKS-Regex aus Liegenschaftskuerzel: WUN -> WUN\\d{3}[xX]?"""
-    return rf"{re.escape(project_code)}\d{{3}}[xX]?"
+    """Baut AKS-Regex aus Liegenschaftskuerzel.
+
+    Akzeptiert sowohl reine Praefixe (z.B. "WUN" -> "WUN\\d{3}[xX]?")
+    als auch komplette Codes mit Nummer (z.B. "WUN005x" -> "WUN\\d{3}[xX]?").
+    Bei einem konkreten Code werden Nummer und Suffix abgestreift, damit der
+    Regex alle Liegenschafts-Nummern desselben Standorts matcht (wichtig fuer
+    Infrastruktur-Plaene, die Codes wie WUN001/WUN002/WUN099 mischen).
+    """
+    base = re.match(r"^([A-Za-z]+)", project_code)
+    prefix = base.group(1) if base else project_code
+    return rf"{re.escape(prefix)}\d{{3}}[xX]?"
 
 router = APIRouter(tags=["projects"])
 

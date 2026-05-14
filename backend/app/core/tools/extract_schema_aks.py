@@ -26,6 +26,11 @@ def _convert_room(raum_code: str, room_code_pattern: str, room_format: str) -> s
         prefix = EBENE_PREFIX.get(ebene_match.group(1), ebene_match.group(1))
         return f"{prefix}.{ebene_match.group(2)}"
 
+    # Aussenanlagen aus INF-Plaenen (z.B. AA001 fuer Schaechte/Rigolen)
+    aussenanlage_match = re.match(r"^([A-Z]{2})(\d{3})$", raum_code)
+    if aussenanlage_match:
+        return f"Aussenanlage {aussenanlage_match.group(2)}"
+
     # Fallback: Projekt-spezifisches Pattern (Rueckwaertskompatibilitaet)
     room_match = re.match(room_code_pattern, raum_code)
     if room_match:

@@ -13,18 +13,36 @@ from app.schemas import UploadListResponse, UploadResponse
 router = APIRouter(tags=["uploads"])
 
 
+_SCHEMA_TOKENS = ("SCH", "SCHEMA")
+# Grundriss-/Layout-/Lageplan-Marker (Hochbau-Grundrisse: G00/GRUNDRISS,
+# TGA-Geschossplaene: M00, Leitungsplaene: LEI, Infrastruktur/Aussenanlagen:
+# INF/LAGEPLAN, Uebersichtsplaene: UEP0/UP0/UEBERSICHT).
+_GRUNDRISS_TOKENS = (
+    "G00", "GRUNDRISS",
+    "M00", "LEI",
+    "INF", "LAGEPLAN",
+    "UEP0", "UP0", "UEBERSICHT",
+)
+
+
 def _detect_file_type(filename: str) -> str:
-    name_upper = filename.upper()
+    name_upper = filename.upper().replace("Ü", "UE").replace("Ö", "OE").replace("Ä", "AE")
     ext = Path(filename).suffix.lower()
 
     if ext in (".xlsx", ".xls"):
         return "revit_excel"
     if ext == ".pdf":
-        if "SCH" in name_upper or "SCHEMA" in name_upper:
-            return "schema_pdf"
-        if "G00" in name_upper or "GRUNDRISS" in name_upper:
+        # Grundriss-Marker haben Vorrang: viele BMS-Dateinamen enthalten "SCH"
+        # als Teil eines anderen Tokens (z.B. SCHUTZ, SCHACHT) — der spezifischere
+        # Grundriss-Token gewinnt.
+        if any(tok in name_upper for tok in _GRUNDRISS_TOKENS):
             return "grundriss_pdf"
-        return "schema_pdf"  # default for PDFs
+        if any(tok in name_upper for tok in _SCHEMA_TOKENS):
+            return "schema_pdf"
+        # Default: Grundriss ist der robustere Extraktor (positionsbasiert,
+        # toleriert unbekannte Layouts). Schema setzt strukturierte
+        # Titelbloecke voraus.
+        return "grundriss_pdf"
     return "unknown"
 
 
